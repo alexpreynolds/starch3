@@ -2,14 +2,16 @@
 
 using namespace starch;
 
+// constants
+
 const std::string Starch::general_name = "starch3";
 const std::string Starch::version = S3_VERSION;
 const std::string Starch::authors = "Alex Reynolds";
-const std::string Starch::general_usage = "\n"                  \
+const std::string Starch::general_usage = "\n"                          \
     "  Usage:\n"                                                        \
     "\n"                                                                \
     "  $ starch3 [options] < input > output\n";
-const std::string Starch::general_description =                 \
+const std::string Starch::general_description =                         \
     "  Compress sorted BED data to BEDOPS Starch archive format.\n";
 const std::string Starch::general_io_options = "";
 const std::string Starch::general_options = "";
@@ -20,7 +22,10 @@ struct option Starch::client_long_options[] = {
     { NULL,             no_argument,         NULL,     0  }
 };
 
-int main(int argc, char** argv) 
+// methods
+
+int 
+main(int argc, char** argv) 
 {
     Starch::init_command_line_options(argc, argv);
 
