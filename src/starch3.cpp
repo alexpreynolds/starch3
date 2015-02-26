@@ -6,8 +6,36 @@ int
 main(int argc, char** argv) 
 {
     starch3::Starch::init_command_line_options(argc, argv);
+    starch3::Starch::test_stdin_availability();
 
     return EXIT_SUCCESS;
+}
+
+void
+starch3::Starch::test_stdin_availability()
+{
+#ifdef DEBUG
+    fprintf(stderr, "--- starch3::Starch::test_stdin_availability() - enter ---\n");
+#endif
+
+    struct stat stats;
+    int stats_res;
+
+    if ((stats_res = fstat(STDIN_FILENO, &stats)) == -1) {
+        int errsv = errno;
+        fprintf(stderr, "Error: fstat() call failed (%s)", (errsv == EBADF ? "EBADF" : (errsv == EIO ? "EIO" : "EOVERFLOW")));
+	starch3::Starch::print_usage(stderr);
+	std::exit(errsv);
+    }
+    if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false)) {
+        fprintf(stderr, "Error: No input is specified; please redirect or pipe in formatted data\n");
+	starch3::Starch::print_usage(stderr);
+	std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
+    }
+
+#ifdef DEBUG
+    fprintf(stderr, "--- starch3::Starch::test_stdin_availability() - leave ---\n");
+#endif
 }
 
 void
@@ -29,6 +57,9 @@ starch3::Starch::init_command_line_options(int argc, char **argv)
     while (client_opt != -1) {
         switch (client_opt) 
             {
+	    case 'n':
+		starch3::Starch::note = optarg;
+		break;
             case 'h':
                 starch3::Starch::print_usage(stdout);
                 exit(EXIT_SUCCESS);
@@ -38,11 +69,18 @@ starch3::Starch::init_command_line_options(int argc, char **argv)
             case '?':
                 starch3::Starch::print_usage(stdout);
                 exit(EXIT_SUCCESS);
+	    default:
+		break;
             }        
+	client_opt = getopt_long(argc,
+                                 argv,
+                                 starch3::Starch::client_opt_string().c_str(),
+                                 starch3::Starch::client_long_options(),
+                                 &client_long_index);
     }
 
 #ifdef DEBUG
-    fprintf(stderr, "--- Starch::init_command_line_options() - exit  ---\n");
+    fprintf(stderr, "--- starch3::Starch::init_command_line_options() - leave ---\n");
 #endif
 }
 
@@ -70,7 +108,7 @@ starch3::Starch::print_usage(FILE *wo_stream)
             starch3::Starch::general_options().c_str());
 
 #ifdef DEBUG
-    fprintf(stderr, "--- starch3::Starch::print_usage() - exit  ---\n");
+    fprintf(stderr, "--- starch3::Starch::print_usage() - leave ---\n");
 #endif
 }
 
@@ -90,6 +128,6 @@ starch3::Starch::print_version(FILE *wo_stream)
             starch3::Starch::authors().c_str());
 
 #ifdef DEBUG
-    fprintf(stderr, "--- starch3::Starch::print_version() - exit  ---\n");
+    fprintf(stderr, "--- starch3::Starch::print_version() - leave ---\n");
 #endif
 }

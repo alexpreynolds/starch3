@@ -1,6 +1,6 @@
 CC=g++
 PRODUCT=starch3
-FLAGS=-Wall -Weverything -Wno-exit-time-destructors
+FLAGS=-Wall -Weverything -Wno-exit-time-destructors -Wno-global-constructors
 CWD=$(shell pwd)
 SRC=${CWD}/src
 BUILD=${CWD}/build
@@ -8,7 +8,7 @@ BZIP2ARC=${SRC}/bzip2-1.0.6.tar.gz
 BZIP2DIR=${SRC}/bzip2-1.0.6
 BZIP2SYMDIR=${SRC}/bzip2
 BZIP2LIBDIR=${BZIP2SYMDIR}
-FLAGS2=-O3 -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
+FLAGS2=-O3 -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DDEBUG
 INC=${SRC}
 
 all: prep bzip2
