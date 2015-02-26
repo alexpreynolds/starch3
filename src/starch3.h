@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <GetOpt.h>
-#include "bzip2/bzlib.h"
+#include "bzlib.h"
 
 #define S3_GENERAL_NAME "starch3"
 #define S3_VERSION "0.1"
