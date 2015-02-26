@@ -11,7 +11,7 @@
 #define S3_VERSION "0.1"
 #define S3_AUTHORS "Alex Reynolds and Shane Neph"
 
-namespace starch 
+namespace starch3
 {
     class Starch 
     {
@@ -64,8 +64,8 @@ namespace starch
             return &_s[0];
         }
         static void init_command_line_options(int argc, char **argv);
-        static void print_usage(FILE *stream);
-        static void print_version(FILE *stream);
+        static void print_usage(FILE *wo_stream);
+        static void print_version(FILE *wo_stream);
     };
 }
 
