@@ -43,7 +43,7 @@ starch3::Starch::test_stdin_availability()
 }
 
 void
-starch3::Starch::init_command_line_options(int argc, char **argv, starch3::Starch& starch)
+starch3::Starch::init_command_line_options(int argc, char** argv, starch3::Starch& starch)
 {
 #ifdef DEBUG
     fprintf(stderr, "--- starch3::Starch::init_command_line_options() - enter ---\n");
@@ -89,7 +89,7 @@ starch3::Starch::init_command_line_options(int argc, char **argv, starch3::Starc
 }
 
 void
-starch3::Starch::print_usage(FILE *wo_stream)
+starch3::Starch::print_usage(FILE* wo_stream)
 {
 #ifdef DEBUG
     fprintf(stderr, "--- starch3::Starch::print_usage() - enter ---\n");
@@ -117,7 +117,7 @@ starch3::Starch::print_usage(FILE *wo_stream)
 }
 
 void
-starch3::Starch::print_version(FILE *wo_stream)
+starch3::Starch::print_version(FILE* wo_stream)
 {
 #ifdef DEBUG
     fprintf(stderr, "--- starch3::Starch::print_version() - enter ---\n");
