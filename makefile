@@ -1,6 +1,6 @@
 CC=g++
 PRODUCT=starch3
-FLAGS=-Wall -Weverything -Wno-exit-time-destructors -Wno-global-constructors
+FLAGS=-Wall -Weverything -Wno-exit-time-destructors
 
 all:
 	${CC} ${FLAGS} -c starch3.cpp
