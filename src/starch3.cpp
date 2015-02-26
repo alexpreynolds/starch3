@@ -57,9 +57,9 @@ starch3::Starch::print_usage(FILE *wo_stream)
             "%s\n"            \
             "  version: %s\n" \
             "  author:  %s\n" \
-            "%s\n"            \
-            "%s\n"            \
-            "%s\n"            \
+            "%s\n"	      \
+            "%s\n"	      \
+            "%s\n"	      \
             "%s\n",
             starch3::Starch::general_name().c_str(),
             starch3::Starch::version().c_str(),

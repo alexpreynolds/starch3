@@ -43,11 +43,14 @@ namespace starch3
             return _s;
         }
         static const std::string& general_io_options() {
-            static std::string _s("");
+            static std::string _s("  General Options:\n\n"		\
+				  "  --note=\"foo bar...\"   Append note to output archive metadata (optional)\n");
             return _s; 
         }
         static const std::string& general_options() {
-            static std::string _s("");
+            static std::string _s("  Process Flags:\n\n"		\
+				  "  --help                  Show this usage message\n" \
+				  "  --version               Show binary version\n");
             return _s;
         }
         static const std::string& client_opt_string() {
