@@ -19,8 +19,16 @@ namespace starch3
     class Starch 
     {
     private:
+	std::string _note;
+	bz_stream *_bz_stream_ptr;
     public:
-	static std::string note;
+	Starch();
+	~Starch();
+	std::string get_note(void);
+	void set_note(std::string s);
+	bz_stream *get_bz_stream_ptr(void);
+	void set_bz_stream_ptr(bz_stream **ptr);
+	void free_bz_stream_ptr(void);
 
         static const std::string& general_name() {
             static std::string _s(S3_GENERAL_NAME);
@@ -74,12 +82,33 @@ namespace starch3
             return &_s[0];
         }
 	static void test_stdin_availability();
-        static void init_command_line_options(int argc, char **argv);
+        static void init_command_line_options(int argc, char **argv, starch3::Starch &starch);
         static void print_usage(FILE *wo_stream);
         static void print_version(FILE *wo_stream);
     };
-    
-    std::string Starch::note = "";
+
+    std::string Starch::get_note(void) { return _note; }
+    void Starch::set_note(std::string s) { _note = s; }
+    bz_stream * Starch::get_bz_stream_ptr(void) { return _bz_stream_ptr; }
+    void Starch::set_bz_stream_ptr(bz_stream **ptr) { _bz_stream_ptr = *ptr; }
+    void Starch::free_bz_stream_ptr(void) { free(_bz_stream_ptr); _bz_stream_ptr = NULL; }
+
+    Starch::Starch() {
+	std::string _default_note;
+	set_note(_default_note);
+	bz_stream *bz_stream_ptr = NULL;
+	bz_stream_ptr = static_cast<bz_stream *>( malloc(sizeof(bz_stream)) );
+	if (!bz_stream_ptr) {
+	    fprintf(stderr, "Error: Could not allocate space for bzip2 stream\n");
+	    exit(ENOMEM);
+	}
+	set_bz_stream_ptr(&bz_stream_ptr);
+    }
+
+    Starch::~Starch() {
+	if (get_bz_stream_ptr())
+	    free_bz_stream_ptr();
+    }
 }
 
 #endif

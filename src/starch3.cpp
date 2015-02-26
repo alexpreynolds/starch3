@@ -5,8 +5,12 @@
 int 
 main(int argc, char** argv) 
 {
-    starch3::Starch::init_command_line_options(argc, argv);
+    starch3::Starch starch;
+
+    starch3::Starch::init_command_line_options(argc, argv, starch);
     starch3::Starch::test_stdin_availability();
+
+    fprintf(stderr, "[%s]\n", starch.get_note().c_str());
 
     return EXIT_SUCCESS;
 }
@@ -39,7 +43,7 @@ starch3::Starch::test_stdin_availability()
 }
 
 void
-starch3::Starch::init_command_line_options(int argc, char **argv)
+starch3::Starch::init_command_line_options(int argc, char **argv, starch3::Starch& starch)
 {
 #ifdef DEBUG
     fprintf(stderr, "--- starch3::Starch::init_command_line_options() - enter ---\n");
@@ -58,7 +62,7 @@ starch3::Starch::init_command_line_options(int argc, char **argv)
         switch (client_opt) 
             {
 	    case 'n':
-		starch3::Starch::note = optarg;
+		starch.set_note(optarg);
 		break;
             case 'h':
                 starch3::Starch::print_usage(stdout);
