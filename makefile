@@ -1,6 +1,6 @@
 CC=g++
 PRODUCT=starch3
-FLAGS=-Wall -Weverything -Wno-exit-time-destructors -Wno-global-constructors
+FLAGS=-Wall -Wno-exit-time-destructors -Wno-global-constructors
 CWD=$(shell pwd)
 SRC=${CWD}/src
 BUILD=${CWD}/build
