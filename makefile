@@ -10,6 +10,12 @@ BZIP2SYMDIR=${SRC}/bzip2
 BZIP2LIBDIR=${BZIP2SYMDIR}
 FLAGS2=-O3 -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DDEBUG
 INC=${SRC}
+UNAME:=$(shell uname -s)
+
+ifeq ($(UNAME),Darwin)
+	CC = clang++
+	FLAGS += -Weverything
+endif
 
 all: prep bzip2
 	${CC} ${FLAGS} ${FLAGS2} -I${INC} -c "${SRC}/starch3.cpp" -o "${BUILD}/starch3.o"

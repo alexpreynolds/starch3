@@ -20,11 +20,14 @@ namespace starch3
     class Starch 
     {
     private:
+        std::string _input_fn;
 	std::string _note;
 	bz_stream* _bz_stream_ptr;
     public:
 	Starch();
 	~Starch();
+        std::string get_input_fn(void);
+        void set_input_fn(std::string s);
 	std::string get_note(void);
 	void set_note(std::string s);
 	bz_stream* get_bz_stream_ptr(void);
@@ -47,7 +50,11 @@ namespace starch3
             static std::string _s("\n"                                  \
                                   "  Usage:\n"                          \
                                   "\n"                                  \
-                                  "  $ starch3 [options] < input > output\n");
+                                  "  $ starch3 [options] < input > output\n" \
+                                  "\n"                                  \
+                                  "  Or:\n"                             \
+                                  "\n"                                  \
+                                  "  $ starch3 [options] input > output\n");
             return _s;
         }
         static const std::string& general_description() {
@@ -82,12 +89,14 @@ namespace starch3
             _s.push_back(_0);
             return &_s[0];
         }
-	static void test_stdin_availability();
+	static void test_stdin_availability(starch3::Starch& starch);
         static void init_command_line_options(int argc, char** argv, starch3::Starch& starch);
         static void print_usage(FILE* wo_stream);
         static void print_version(FILE* wo_stream);
     };
 
+    std::string Starch::get_input_fn(void) { return _input_fn; }
+    void Starch::set_input_fn(std::string s) { _input_fn = s; }
     std::string Starch::get_note(void) { return _note; }
     void Starch::set_note(std::string s) { _note = s; }
     bz_stream* Starch::get_bz_stream_ptr(void) { return _bz_stream_ptr; }
@@ -95,6 +104,8 @@ namespace starch3
     void Starch::free_bz_stream_ptr(void) { free(_bz_stream_ptr); _bz_stream_ptr = NULL; }
 
     Starch::Starch() {
+        std::string _default_input_fn;
+        set_input_fn(_default_input_fn);
 	std::string _default_note;
 	set_note(_default_note);
 	bz_stream* bz_stream_ptr = NULL;

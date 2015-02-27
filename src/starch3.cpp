@@ -8,15 +8,15 @@ main(int argc, char** argv)
     starch3::Starch starch;
 
     starch3::Starch::init_command_line_options(argc, argv, starch);
-    starch3::Starch::test_stdin_availability();
+    starch3::Starch::test_stdin_availability(starch);
 
-    fprintf(stderr, "[%s]\n", starch.get_note().c_str());
-
+    fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
+    fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
     return EXIT_SUCCESS;
 }
 
 void
-starch3::Starch::test_stdin_availability()
+starch3::Starch::test_stdin_availability(starch3::Starch& starch)
 {
 #ifdef DEBUG
     fprintf(stderr, "--- starch3::Starch::test_stdin_availability() - enter ---\n");
@@ -31,8 +31,8 @@ starch3::Starch::test_stdin_availability()
 	starch3::Starch::print_usage(stderr);
 	std::exit(errsv);
     }
-    if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false)) {
-        fprintf(stderr, "Error: No input is specified; please redirect or pipe in formatted data\n");
+    if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false) && (starch.get_input_fn().empty())) {
+        fprintf(stderr, "Error: No input is specified; please redirect or pipe in formatted data, or specify filename\n");
 	starch3::Starch::print_usage(stderr);
 	std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
     }
@@ -49,6 +49,7 @@ starch3::Starch::init_command_line_options(int argc, char** argv, starch3::Starc
     fprintf(stderr, "--- starch3::Starch::init_command_line_options() - enter ---\n");
 #endif
 
+    bool filename_unset = true;
     int client_long_index;
     int client_opt = getopt_long(argc,
                                  argv,
@@ -83,6 +84,19 @@ starch3::Starch::init_command_line_options(int argc, char** argv, starch3::Starc
                                  &client_long_index);
     }
 
+    if (optind < argc) {
+        do {
+            if (filename_unset) {
+                starch.set_input_fn(argv[optind]);
+                filename_unset = false;
+            }
+            else {
+                fprintf(stderr, "Warning: Ignoring addition input file [%s]\n", argv[optind]);
+            }
+        }
+        while (++optind < argc);
+    }
+    
 #ifdef DEBUG
     fprintf(stderr, "--- starch3::Starch::init_command_line_options() - leave ---\n");
 #endif
