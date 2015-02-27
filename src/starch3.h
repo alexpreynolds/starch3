@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
-#include <GetOpt.h>
+#include <getopt.h>
 #include "bzlib.h"
 #include <sys/stat.h>
 
