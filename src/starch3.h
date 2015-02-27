@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <getopt.h>
+#include <unistd.h>
 #include "bzlib.h"
 #include <sys/stat.h>
 
