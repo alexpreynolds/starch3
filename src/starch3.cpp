@@ -12,7 +12,22 @@ main(int argc, char** argv)
 
     fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
     fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
+
     return EXIT_SUCCESS;
+}
+
+void
+starch3::Starch::bzip2_block_close_callback(void)
+{
+#ifdef DEBUG
+    fprintf(stderr, "--- starch3::Starch::bzip2_block_close_callback() - enter ---\n");
+#endif
+
+    fprintf(stderr, "starch3::Starch::bzip2_block_close_callback() called\n");
+
+#ifdef DEBUG
+    fprintf(stderr, "--- starch3::Starch::bzip2_block_close_callback() - leave ---\n");
+#endif
 }
 
 void

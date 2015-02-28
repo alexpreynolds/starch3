@@ -1,7 +1,7 @@
 CC = gcc
 CPP = g++
 PRODUCT = starch3
-FLAGS = -Wall -Wno-exit-time-destructors -Wno-global-constructors
+FLAGS = -Wall -Wno-exit-time-destructors -Wno-global-constructors -Wno-padded
 CWD = $(shell pwd)
 SRC = ${CWD}/src
 BUILD = ${CWD}/build

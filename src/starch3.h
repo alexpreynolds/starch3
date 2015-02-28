@@ -8,7 +8,7 @@
 #include <cerrno>
 #include <getopt.h>
 #include <unistd.h>
-#include "bzlib.h"
+#include "bzip2/bzlib.h"
 #include <sys/stat.h>
 
 #define S3_GENERAL_NAME "starch3"
@@ -89,6 +89,7 @@ namespace starch3
             _s.push_back(_0);
             return &_s[0];
         }
+	static void bzip2_block_close_callback(void);
 	static void test_stdin_availability(starch3::Starch& starch);
         static void init_command_line_options(int argc, char** argv, starch3::Starch& starch);
         static void print_usage(FILE* wo_stream);
@@ -114,6 +115,8 @@ namespace starch3
 	    fprintf(stderr, "Error: Could not allocate space for bzip2 stream\n");
 	    exit(ENOMEM);
 	}
+	//BZ2_bzCompressInit(bz_stream_ptr, 9, 4, 30);
+	bz_stream_ptr->block_close_functor = bzip2_block_close_callback;
 	set_bz_stream_ptr(&bz_stream_ptr);
     }
 
