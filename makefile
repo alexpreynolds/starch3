@@ -21,7 +21,7 @@ endif
 
 all: prep bzip2
 	${CPP} ${FLAGS} ${FLAGS2} -I${INC} -c "${SRC}/starch3.cpp" -o "${BUILD}/starch3.o"
-	${CPP} ${FLAGS} ${FLAGS2} -I${INC} -I${BZIP2SYMDIR} -L"${BZIP2LIBDIR}" -lbz2 "${BUILD}/starch3.o" -o "${BUILD}/${PRODUCT}"
+	${CPP} ${FLAGS} ${FLAGS2} -I${INC} -I${BZIP2SYMDIR} -L"${BZIP2LIBDIR}" "${BUILD}/starch3.o" -o "${BUILD}/${PRODUCT}" -lbz2
 
 prep:
 	if [ ! -d "${BUILD}" ]; then mkdir "${BUILD}"; fi
