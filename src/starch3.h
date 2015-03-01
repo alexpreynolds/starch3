@@ -127,12 +127,28 @@ namespace starch3
         catch (std::bad_alloc& ba) {
             std::fprintf(stderr, "Error: Could not allocate space for bz_stream pointer (%s)\n", ba.what());
         }
+        // set callback function pointer
         _bz_stream_ptr->block_close_functor = bzip2_block_close_callback;
+        // using standard malloc / free routines in bz2 library 
+        // cf. http://www.bzip.org/1.0.3/html/low-level.html
+        _bz_stream_ptr->bzalloc = NULL;
+        _bz_stream_ptr->bzfree = NULL;
+        _bz_stream_ptr->opaque = NULL;
+        // blockSize100k - 9 (900 kB)
+        // verbosity - 4 (most verbose)
+        // workFactor - 30 (default)
         BZ2_bzCompressInit(_bz_stream_ptr, 9, 4, 30);
     }
 
     void Starch::delete_bz_stream_ptr(void) { 
-        delete _bz_stream_ptr; 
+        // release all memory associated with the compression stream
+        if (BZ2_bzCompressEnd(_bz_stream_ptr) == BZ_OK) {
+            delete _bz_stream_ptr; 
+        }
+        else {
+            std::fprintf(stderr, "Error: Could not release internals of bz_stream pointer\n");
+            std::exit(EINVAL);
+        }
     }
 
     Starch::Starch() {
