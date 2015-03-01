@@ -1,15 +1,16 @@
-#ifndef STARCH3_HEADER
-#define STARCH3_HEADER
+#ifndef STARCH3_H_
+#define STARCH3_H_
 
 #include <string>
 #include <vector>
+#include <new>
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
 #include <getopt.h>
 #include <unistd.h>
-#include "bzip2/bzlib.h"
 #include <sys/stat.h>
+#include "bzip2/bzlib.h"
 
 #define S3_GENERAL_NAME "starch3"
 #define S3_VERSION "0.1"
@@ -26,13 +27,13 @@ namespace starch3
     public:
 	Starch();
 	~Starch();
+
         std::string get_input_fn(void);
         void set_input_fn(std::string s);
-	std::string get_note(void);
-	void set_note(std::string s);
-	bz_stream* get_bz_stream_ptr(void);
-	void set_bz_stream_ptr(bz_stream** ptr);
-	void free_bz_stream_ptr(void);
+        std::string get_note(void);
+        void set_note(std::string s);
+        void init_bz_stream_ptr(void);
+        void delete_bz_stream_ptr(void);
 
         static const std::string& general_name() {
             static std::string _s(S3_GENERAL_NAME);
@@ -96,34 +97,44 @@ namespace starch3
         static void print_version(FILE* wo_stream);
     };
 
-    std::string Starch::get_input_fn(void) { return _input_fn; }
-    void Starch::set_input_fn(std::string s) { _input_fn = s; }
-    std::string Starch::get_note(void) { return _note; }
-    void Starch::set_note(std::string s) { _note = s; }
-    bz_stream* Starch::get_bz_stream_ptr(void) { return _bz_stream_ptr; }
-    void Starch::set_bz_stream_ptr(bz_stream **ptr) { _bz_stream_ptr = *ptr; }
-    void Starch::free_bz_stream_ptr(void) { free(_bz_stream_ptr); _bz_stream_ptr = NULL; }
+    std::string Starch::get_input_fn(void) {
+        return _input_fn;
+    }
+    
+    void Starch::set_input_fn(std::string s) {
+        _input_fn = s;
+    }
+    
+    std::string Starch::get_note(void) {
+        return _note;
+    }
+    
+    void Starch::set_note(std::string s) {
+        _note = s;
+    }
+
+    void Starch::init_bz_stream_ptr(void) { 
+        try {
+            _bz_stream_ptr = new bz_stream; 
+        }
+        catch (std::bad_alloc& ba) {
+            std::fprintf(stderr, "Error: Could not allocate space for bz_stream pointer (%s)\n", ba.what());
+        }
+        _bz_stream_ptr->block_close_functor = bzip2_block_close_callback;
+        BZ2_bzCompressInit(_bz_stream_ptr, 9, 4, 30);
+    }
+
+    void Starch::delete_bz_stream_ptr(void) { 
+        delete _bz_stream_ptr; 
+    }
 
     Starch::Starch() {
-        std::string _default_input_fn;
-        set_input_fn(_default_input_fn);
-	std::string _default_note;
-	set_note(_default_note);
-	bz_stream* bz_stream_ptr = NULL;
-	bz_stream_ptr = static_cast<bz_stream *>( malloc(sizeof(bz_stream)) );
-	if (!bz_stream_ptr) {
-	    fprintf(stderr, "Error: Could not allocate space for bzip2 stream\n");
-	    exit(ENOMEM);
-	}
-	//BZ2_bzCompressInit(bz_stream_ptr, 9, 4, 30);
-	bz_stream_ptr->block_close_functor = bzip2_block_close_callback;
-	set_bz_stream_ptr(&bz_stream_ptr);
+        init_bz_stream_ptr();
     }
 
     Starch::~Starch() {
-	if (get_bz_stream_ptr())
-	    free_bz_stream_ptr();
+        delete_bz_stream_ptr();
     }
 }
 
-#endif
+#endif // STARCH3_H_
