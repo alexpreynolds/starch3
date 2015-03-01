@@ -102,7 +102,14 @@ namespace starch3
     }
     
     void Starch::set_input_fn(std::string s) {
-        _input_fn = s;
+        struct stat buf;
+        if (stat(s.c_str(), &buf) == 0) {
+            _input_fn = s;
+        }
+        else {
+            std::fprintf(stderr, "Error: Input file does not exist (%s)\n", s.c_str());
+            std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
+        }
     }
     
     std::string Starch::get_note(void) {
