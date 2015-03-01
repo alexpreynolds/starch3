@@ -135,19 +135,44 @@ namespace starch3
         _bz_stream_ptr->bzfree = NULL;
         _bz_stream_ptr->opaque = NULL;
         // blockSize100k - 9 (900 kB)
-        // verbosity - 4 (most verbose)
+        // verbosity - 0 or 4 (silent or most verbose)
         // workFactor - 30 (default)
-        BZ2_bzCompressInit(_bz_stream_ptr, 9, 4, 30);
+#ifdef DEBUG
+        int init_res = BZ2_bzCompressInit(_bz_stream_ptr, 9, 4, 30);
+#else
+        int init_res = BZ2_bzCompressInit(_bz_stream_ptr, 9, 0, 30);
+#endif
+        switch (init_res) {
+        case BZ_CONFIG_ERROR:
+            std::fprintf(stderr, "Error: bzip2 initialization failed - library was miscompiled\n");
+            std::exit(EINVAL);
+        case BZ_PARAM_ERROR:
+            std::fprintf(stderr, "Error: bzip2 initialization failed - incorrect parameters\n");
+            std::exit(EINVAL);
+        case BZ_MEM_ERROR:
+            std::fprintf(stderr, "Error: bzip2 initialization failed - insufficient memory\n");
+            std::exit(EINVAL);
+        case BZ_OK:
+#ifdef DEBUG
+            std::fprintf(stderr, "--- starch3::Starch::init_bz_stream_ptr() - bz_stream initialized ---\n");
+#endif
+            break;
+        }
     }
 
     void Starch::delete_bz_stream_ptr(void) { 
-        // release all memory associated with the compression stream
-        if (BZ2_bzCompressEnd(_bz_stream_ptr) == BZ_OK) {
-            delete _bz_stream_ptr; 
-        }
-        else {
+        // release all memory associated with the compression stream before ptr deletion
+        int end_res = BZ2_bzCompressEnd(_bz_stream_ptr);
+        switch (end_res) {
+        case BZ_PARAM_ERROR:
             std::fprintf(stderr, "Error: Could not release internals of bz_stream pointer\n");
             std::exit(EINVAL);
+        case BZ_OK:
+#ifdef DEBUG
+            std::fprintf(stderr, "--- starch3::Starch::delete_bz_stream_ptr() - bz_stream released ---\n");
+#endif
+            delete _bz_stream_ptr; 
+            break;
         }
     }
 
