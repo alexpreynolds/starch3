@@ -33,7 +33,9 @@ namespace starch3
         std::string get_note(void);
         void set_note(std::string s);
         void init_bz_stream_ptr(void);
+        void set_bz_stream_handler(starch3::Starch* h);
         void delete_bz_stream_ptr(void);
+        void bzip2_block_close_callback(void);
 
         static const std::string& general_name() {
             static std::string _s(S3_GENERAL_NAME);
@@ -90,7 +92,9 @@ namespace starch3
             _s.push_back(_0);
             return &_s[0];
         }
-	static void bzip2_block_close_callback(void);
+
+	static void bzip2_block_close_static_callback(void* s);
+
 	static void test_stdin_availability(starch3::Starch& starch);
         static void init_command_line_options(int argc, char** argv, starch3::Starch& starch);
         static void print_usage(FILE* wo_stream);
@@ -127,8 +131,6 @@ namespace starch3
         catch (std::bad_alloc& ba) {
             std::fprintf(stderr, "Error: Could not allocate space for bz_stream pointer (%s)\n", ba.what());
         }
-        // set callback function pointer
-        _bz_stream_ptr->block_close_functor = bzip2_block_close_callback;
         // using standard malloc / free routines in bz2 library 
         // cf. http://www.bzip.org/1.0.3/html/low-level.html
         _bz_stream_ptr->bzalloc = NULL;
@@ -160,6 +162,10 @@ namespace starch3
         }
     }
 
+    void Starch::set_bz_stream_handler(starch3::Starch* h) {
+        _bz_stream_ptr->handler = &h;
+    }
+
     void Starch::delete_bz_stream_ptr(void) { 
         // release all memory associated with the compression stream before ptr deletion
         int end_res = BZ2_bzCompressEnd(_bz_stream_ptr);
@@ -183,6 +189,8 @@ namespace starch3
     Starch::~Starch() {
         delete_bz_stream_ptr();
     }
+
+    extern Starch* self;
 }
 
 #endif // STARCH3_H_

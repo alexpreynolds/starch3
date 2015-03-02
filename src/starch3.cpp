@@ -1,19 +1,32 @@
 #include "starch3.h"
 
+// global reference to state-maintaining instance
+
+starch3::Starch* starch3::self = NULL;
+
 // methods
 
 int 
 main(int argc, char** argv) 
 {
     starch3::Starch starch;
+    starch3::self = &starch;
 
     starch3::Starch::init_command_line_options(argc, argv, starch);
     starch3::Starch::test_stdin_availability(starch);
+
+    starch.set_bz_stream_handler(starch3::self);
 
     std::fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
     std::fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
 
     return EXIT_SUCCESS;
+}
+
+void 
+starch3::Starch::bzip2_block_close_static_callback(void* s)
+{
+    reinterpret_cast<starch3::Starch*>(s)->bzip2_block_close_callback();
 }
 
 void

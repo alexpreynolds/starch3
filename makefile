@@ -29,7 +29,7 @@ prep:
 bzip2:
 	if [ ! -d "${BZIP2DIR}" ]; then mkdir "${BZIP2DIR}"; fi
 	tar zxvf "${BZIP2ARC}" -C "${SRC}"
-	ln -s ${BZIP2DIR} ${BZIP2SYMDIR}
+	ln -sf ${BZIP2DIR} ${BZIP2SYMDIR}
 	${MAKE} -C ${BZIP2SYMDIR} libbz2.a CC=${CC} 
 
 clean:
