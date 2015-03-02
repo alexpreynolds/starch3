@@ -33,9 +33,13 @@ namespace starch3
         std::string get_note(void);
         void set_note(std::string s);
         void init_bz_stream_ptr(void);
-        void set_bz_stream_handler(starch3::Starch* h);
+        void setup_bz_stream_callbacks(starch3::Starch* h);
         void delete_bz_stream_ptr(void);
         void bzip2_block_close_callback(void);
+        void init_command_line_options(int argc, char** argv);
+	void test_stdin_availability(void);
+        void print_usage(FILE* wo_stream);
+        void print_version(FILE* wo_stream);
 
         static const std::string& general_name() {
             static std::string _s(S3_GENERAL_NAME);
@@ -94,11 +98,6 @@ namespace starch3
         }
 
 	static void bzip2_block_close_static_callback(void* s);
-
-	static void test_stdin_availability(starch3::Starch& starch);
-        static void init_command_line_options(int argc, char** argv, starch3::Starch& starch);
-        static void print_usage(FILE* wo_stream);
-        static void print_version(FILE* wo_stream);
     };
 
     std::string Starch::get_input_fn(void) {
@@ -162,8 +161,9 @@ namespace starch3
         }
     }
 
-    void Starch::set_bz_stream_handler(starch3::Starch* h) {
+    void Starch::setup_bz_stream_callbacks(starch3::Starch* h) {
         _bz_stream_ptr->handler = &h;
+        _bz_stream_ptr->block_close_functor = bzip2_block_close_static_callback;
     }
 
     void Starch::delete_bz_stream_ptr(void) { 
@@ -183,11 +183,9 @@ namespace starch3
     }
 
     Starch::Starch() {
-        init_bz_stream_ptr();
     }
 
     Starch::~Starch() {
-        delete_bz_stream_ptr();
     }
 
     extern Starch* self;

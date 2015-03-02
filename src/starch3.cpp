@@ -1,6 +1,6 @@
 #include "starch3.h"
 
-// global reference to state-maintaining instance
+// global pointer to state-maintaining instance
 
 starch3::Starch* starch3::self = NULL;
 
@@ -9,16 +9,26 @@ starch3::Starch* starch3::self = NULL;
 int 
 main(int argc, char** argv) 
 {
+#ifdef DEBUG
+    std::fprintf(stderr, "--- starch3::Starch::main() - enter ---\n");
+#endif
+
     starch3::Starch starch;
     starch3::self = &starch;
 
-    starch3::Starch::init_command_line_options(argc, argv, starch);
-    starch3::Starch::test_stdin_availability(starch);
-
-    starch.set_bz_stream_handler(starch3::self);
+    starch.init_command_line_options(argc, argv);
+    starch.test_stdin_availability();
 
     std::fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
     std::fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
+
+    starch.init_bz_stream_ptr();
+    starch.setup_bz_stream_callbacks(starch3::self);
+    starch.delete_bz_stream_ptr();
+
+#ifdef DEBUG
+    std::fprintf(stderr, "--- starch3::Starch::main() - leave ---\n");
+#endif
 
     return EXIT_SUCCESS;
 }
@@ -26,7 +36,15 @@ main(int argc, char** argv)
 void 
 starch3::Starch::bzip2_block_close_static_callback(void* s)
 {
+#ifdef DEBUG
+    std::fprintf(stderr, "--- starch3::Starch::bzip2_block_close_static_callback() - enter ---\n");
+#endif
+
     reinterpret_cast<starch3::Starch*>(s)->bzip2_block_close_callback();
+
+#ifdef DEBUG
+    std::fprintf(stderr, "--- starch3::Starch::bzip2_block_close_static_callback() - leave ---\n");
+#endif
 }
 
 void
@@ -44,7 +62,7 @@ starch3::Starch::bzip2_block_close_callback(void)
 }
 
 void
-starch3::Starch::test_stdin_availability(starch3::Starch& starch)
+starch3::Starch::test_stdin_availability(void)
 {
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::test_stdin_availability() - enter ---\n");
@@ -56,12 +74,12 @@ starch3::Starch::test_stdin_availability(starch3::Starch& starch)
     if ((stats_res = fstat(STDIN_FILENO, &stats)) == -1) {
         int errsv = errno;
         std::fprintf(stderr, "Error: fstat() call failed (%s)", (errsv == EBADF ? "EBADF" : (errsv == EIO ? "EIO" : "EOVERFLOW")));
-	starch3::Starch::print_usage(stderr);
+	this->print_usage(stderr);
 	std::exit(errsv);
     }
-    if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false) && (starch.get_input_fn().empty())) {
+    if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false) && (this->get_input_fn().empty())) {
         std::fprintf(stderr, "Error: No input is specified; please redirect or pipe in formatted data, or specify filename\n");
-	starch3::Starch::print_usage(stderr);
+	this->print_usage(stderr);
 	std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
     }
 
@@ -71,7 +89,7 @@ starch3::Starch::test_stdin_availability(starch3::Starch& starch)
 }
 
 void
-starch3::Starch::init_command_line_options(int argc, char** argv, starch3::Starch& starch)
+starch3::Starch::init_command_line_options(int argc, char** argv)
 {
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::init_command_line_options() - enter ---\n");
@@ -90,16 +108,16 @@ starch3::Starch::init_command_line_options(int argc, char** argv, starch3::Starc
         switch (client_opt) 
             {
 	    case 'n':
-                starch.set_note(optarg);
+                this->set_note(optarg);
 		break;
             case 'h':
-                starch3::Starch::print_usage(stdout);
+                this->print_usage(stdout);
                 std::exit(EXIT_SUCCESS);
             case 'v':
-                starch3::Starch::print_version(stdout);
+                this->print_version(stdout);
                 std::exit(EXIT_SUCCESS);
             case '?':
-                starch3::Starch::print_usage(stdout);
+                this->print_usage(stdout);
                 std::exit(EXIT_SUCCESS);
 	    default:
 		break;
@@ -113,8 +131,8 @@ starch3::Starch::init_command_line_options(int argc, char** argv, starch3::Starc
 
     if (optind < argc) {
         do {
-            if (starch.get_input_fn().empty()) {
-                starch.set_input_fn(argv[optind]);
+            if (this->get_input_fn().empty()) {
+                this->set_input_fn(argv[optind]);
             }
             else {
                 std::fprintf(stderr, "Warning: Ignoring additional input file [%s]\n", argv[optind]);
