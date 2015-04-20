@@ -1,5 +1,5 @@
-CC = gcc
-CPP = g++
+#CC = gcc
+#CPP = g++
 PRODUCT = starch3
 FLAGS = -Wall -Wno-exit-time-destructors -Wno-global-constructors -Wno-padded
 CWD = $(shell pwd)
