@@ -10,24 +10,45 @@
 #include <getopt.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <pthread.h>
 #include "bzip2/bzlib.h"
 
 #define S3_GENERAL_NAME "starch3"
 #define S3_VERSION "0.1"
 #define S3_AUTHORS "Alex Reynolds and Shane Neph"
 
+#define S3_BUFFER_LINES 4
+#define S3_BUFFER_SIZE 512
+
 namespace starch3
 {
     class Starch 
     {
+        // cf. http://www.cs.fsu.edu/~baker/opsys/examples/prodcons/prodcons3.c
+        typedef struct shared_buffer {
+            pthread_mutex_t lock;                    // protects the buffer
+            pthread_cond_t new_data_cond;            // to wait when the buffer is empty
+            pthread_cond_t new_space_cond;           // to wait when the buffer is full
+            char c[S3_BUFFER_LINES][S3_BUFFER_SIZE]; // an array of lines, to hold the text
+            int next_in;                             // next available line for input
+            int next_out;                            // next available line for output
+            int count;                               // the number of lines occupied
+        } shared_buffer_t;
+        
     private:
         std::string _input_fn;
 	std::string _note;
 	bz_stream* _bz_stream_ptr;
+
     public:
 	Starch();
 	~Starch();
 
+        pthread_t produce_bed_thread;
+        pthread_t consume_bed_thread;
+        shared_buffer_t sb;
+
+        void init_sb(starch3::Starch::shared_buffer_t* sb);
         std::string get_input_fn(void);
         void set_input_fn(std::string s);
         std::string get_note(void);
@@ -40,7 +61,60 @@ namespace starch3
 	void test_stdin_availability(void);
         void print_usage(FILE* wo_stream);
         void print_version(FILE* wo_stream);
-
+        
+        static void* produce_bed(void* arg) {
+            int i,k = 0;
+            shared_buffer_t *b = static_cast<shared_buffer_t *>( arg );
+            
+            pthread_mutex_lock(&b->lock);
+            for (;;) {
+                while (b->count == S3_BUFFER_LINES)
+                    pthread_cond_wait(&b->new_space_cond, &b->lock);
+                pthread_mutex_unlock(&b->lock);
+                k = b->next_in;
+                i = 0;
+                do {  /* read one line of data into the buffer slot */
+                    if ((b->c[k][i++] = static_cast<char>( getc(stdin) )) == EOF) {
+                        b->next_in = (b->next_in + 1) % S3_BUFFER_LINES;
+                        pthread_mutex_lock(&b->lock);
+                        b->count++;
+                        pthread_mutex_unlock(&b->lock);
+                        pthread_cond_signal(&b->new_data_cond);
+                        pthread_exit(NULL);
+                    }
+                } while ((b->c[k][i-1] != '\n') && (i < S3_BUFFER_SIZE));
+                b->next_in = (b->next_in + 1) % S3_BUFFER_LINES;
+                pthread_mutex_lock(&b->lock);
+                b->count++;
+                pthread_cond_signal(&b->new_data_cond);
+            }
+        }
+        
+        static void* consume_bed(void* arg) { 
+            int i, k = 0;
+            shared_buffer_t *b = static_cast<shared_buffer_t *>( arg );
+            
+            pthread_mutex_lock(&b->lock);
+            for (;;) {
+                while (b->count == 0)
+                    pthread_cond_wait(&b->new_data_cond, &b->lock);
+                pthread_mutex_unlock(&b->lock);
+                k = b->next_out;
+                i = 0;
+                do { /* process next line of text from the buffer */
+                    if (b->c[k][i] == EOF) {
+                        putc('\n', stdout);
+                        pthread_exit(NULL);
+                    }
+                    putc(toupper(b->c[k][i++]), stdout);
+                } while ((b->c[k][i-1] != '\n') && (i < S3_BUFFER_SIZE));
+                b->next_out = (b->next_out + 1) % S3_BUFFER_LINES;
+                pthread_mutex_lock(&b->lock);
+                b->count--;
+                pthread_cond_signal(&b->new_space_cond);
+            }
+        }
+    
         static const std::string& general_name() {
             static std::string _s(S3_GENERAL_NAME);
             return _s;
@@ -99,6 +173,13 @@ namespace starch3
 
 	static void bzip2_block_close_static_callback(void* s);
     };
+
+    void Starch::init_sb(starch3::Starch::shared_buffer_t* b) {
+        b->next_in = b->next_out = b->count = 0;
+        pthread_mutex_init(&b->lock, NULL);
+        pthread_cond_init(&b->new_data_cond, NULL);
+        pthread_cond_init(&b->new_space_cond, NULL);
+    }
 
     std::string Starch::get_input_fn(void) {
         return _input_fn;

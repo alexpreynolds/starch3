@@ -24,6 +24,13 @@ main(int argc, char** argv)
 
     starch.init_bz_stream_ptr();
     starch.setup_bz_stream_callbacks(starch3::self);
+
+    starch.init_sb(&starch.sb);
+    pthread_create(&starch.produce_bed_thread, NULL, starch3::Starch::produce_bed, &starch.sb);
+    pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.sb);
+    pthread_join(starch.produce_bed_thread, NULL); 
+    pthread_join(starch.consume_bed_thread, NULL); 
+
     starch.delete_bz_stream_ptr();
 
 #ifdef DEBUG
@@ -188,7 +195,7 @@ starch3::Starch::print_version(FILE* wo_stream)
                  starch3::Starch::general_name().c_str(),
                  starch3::Starch::version().c_str(),
                  starch3::Starch::authors().c_str());
-    
+
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::print_version() - leave ---\n");
 #endif
