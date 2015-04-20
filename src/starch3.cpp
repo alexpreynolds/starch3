@@ -25,9 +25,9 @@ main(int argc, char** argv)
     starch.init_bz_stream_ptr();
     starch.setup_bz_stream_callbacks(starch3::self);
 
-    starch.init_sb(&starch.sb);
-    pthread_create(&starch.produce_bed_thread, NULL, starch3::Starch::produce_bed, &starch.sb);
-    pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.sb);
+    starch.init_sb(&starch.bed_sb);
+    pthread_create(&starch.produce_bed_thread, NULL, starch3::Starch::produce_bed, &starch.bed_sb);
+    pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.bed_sb);
     pthread_join(starch.produce_bed_thread, NULL); 
     pthread_join(starch.consume_bed_thread, NULL); 
 

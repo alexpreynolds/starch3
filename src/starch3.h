@@ -46,9 +46,9 @@ namespace starch3
 
         pthread_t produce_bed_thread;
         pthread_t consume_bed_thread;
-        shared_buffer_t sb;
+        shared_buffer_t bed_sb;
 
-        void init_sb(starch3::Starch::shared_buffer_t* sb);
+        void init_sb(starch3::Starch::shared_buffer_t* b);
         std::string get_input_fn(void);
         void set_input_fn(std::string s);
         std::string get_note(void);
