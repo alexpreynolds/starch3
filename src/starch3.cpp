@@ -18,9 +18,10 @@ main(int argc, char** argv)
 
     starch.init_command_line_options(argc, argv);
     starch.test_stdin_availability();
+    starch.init_in_stream();
 
-    std::fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
-    std::fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
+    //std::fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
+    //std::fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
 
     starch.init_bz_stream_ptr();
     starch.setup_bz_stream_callbacks(starch3::self);
@@ -30,6 +31,7 @@ main(int argc, char** argv)
     pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.bed_sb);
     pthread_join(starch.produce_bed_thread, NULL); 
     pthread_join(starch.consume_bed_thread, NULL); 
+    starch.delete_sb(&starch.bed_sb);
 
     starch.delete_bz_stream_ptr();
 
@@ -38,61 +40,6 @@ main(int argc, char** argv)
 #endif
 
     return EXIT_SUCCESS;
-}
-
-void 
-starch3::Starch::bzip2_block_close_static_callback(void* s)
-{
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::bzip2_block_close_static_callback() - enter ---\n");
-#endif
-
-    reinterpret_cast<starch3::Starch*>(s)->bzip2_block_close_callback();
-
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::bzip2_block_close_static_callback() - leave ---\n");
-#endif
-}
-
-void
-starch3::Starch::bzip2_block_close_callback(void)
-{
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::bzip2_block_close_callback() - enter ---\n");
-#endif
-
-    std::fprintf(stderr, "callback -> starch3::Starch::bzip2_block_close_callback() called\n");
-
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::bzip2_block_close_callback() - leave ---\n");
-#endif
-}
-
-void
-starch3::Starch::test_stdin_availability(void)
-{
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::test_stdin_availability() - enter ---\n");
-#endif
-
-    struct stat stats;
-    int stats_res;
-
-    if ((stats_res = fstat(STDIN_FILENO, &stats)) == -1) {
-        int errsv = errno;
-        std::fprintf(stderr, "Error: fstat() call failed (%s)", (errsv == EBADF ? "EBADF" : (errsv == EIO ? "EIO" : "EOVERFLOW")));
-	this->print_usage(stderr);
-	std::exit(errsv);
-    }
-    if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false) && (this->get_input_fn().empty())) {
-        std::fprintf(stderr, "Error: No input is specified; please redirect or pipe in formatted data, or specify filename\n");
-	this->print_usage(stderr);
-	std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
-    }
-
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::test_stdin_availability() - leave ---\n");
-#endif
 }
 
 void

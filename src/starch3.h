@@ -11,14 +11,17 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <inttypes.h>
 #include "bzip2/bzlib.h"
 
 #define S3_GENERAL_NAME "starch3"
 #define S3_VERSION "0.1"
 #define S3_AUTHORS "Alex Reynolds and Shane Neph"
 
-#define S3_BUFFER_LINES 4
-#define S3_BUFFER_SIZE 512
+#define S3_BUFFER_LINES 2
+#define S3_BUFFER_SIZE 2048
+
+#define __STDC_FORMAT_MACROS
 
 namespace starch3
 {
@@ -33,12 +36,33 @@ namespace starch3
             int next_in;                             // next available line for input
             int next_out;                            // next available line for output
             int count;                               // the number of lines occupied
+            FILE* in_stream;                         // input file stream
         } shared_buffer_t;
+
+        typedef enum bed_token {
+            chromosome_token,
+            start_token,
+            stop_token,
+            id_token,
+            remainder_token
+        } bed_token_t;
         
+        typedef struct bed {
+            char chr[S3_BUFFER_SIZE];
+            char start_str[S3_BUFFER_SIZE];
+            uint64_t start;
+            char stop_str[S3_BUFFER_SIZE];
+            uint64_t stop;
+            char id[S3_BUFFER_SIZE];
+            char rem[S3_BUFFER_SIZE];
+            int token;
+        } bed_t;
+
     private:
         std::string _input_fn;
 	std::string _note;
 	bz_stream* _bz_stream_ptr;
+        FILE* _in_stream;
 
     public:
 	Starch();
@@ -49,6 +73,10 @@ namespace starch3
         shared_buffer_t bed_sb;
 
         void init_sb(starch3::Starch::shared_buffer_t* b);
+        void delete_sb(starch3::Starch::shared_buffer_t* b);
+        FILE* get_in_stream(void);
+        void init_in_stream(void);
+        void set_in_stream(FILE* ri_stream);
         std::string get_input_fn(void);
         void set_input_fn(std::string s);
         std::string get_note(void);
@@ -63,8 +91,9 @@ namespace starch3
         void print_version(FILE* wo_stream);
         
         static void* produce_bed(void* arg) {
-            int i,k = 0;
-            shared_buffer_t *b = static_cast<shared_buffer_t *>( arg );
+            int i = 0;
+            int k = 0;
+            shared_buffer_t* b = static_cast<shared_buffer_t*>( arg );
             
             pthread_mutex_lock(&b->lock);
             for (;;) {
@@ -73,8 +102,9 @@ namespace starch3
                 pthread_mutex_unlock(&b->lock);
                 k = b->next_in;
                 i = 0;
-                do {  /* read one line of data into the buffer slot */
-                    if ((b->c[k][i++] = static_cast<char>( getc(stdin) )) == EOF) {
+                /* read one line of data into the buffer slot */
+                do {  
+                    if ((b->c[k][i++] = static_cast<char>( getc(b->in_stream) )) == EOF) {
                         b->next_in = (b->next_in + 1) % S3_BUFFER_LINES;
                         pthread_mutex_lock(&b->lock);
                         b->count++;
@@ -91,8 +121,20 @@ namespace starch3
         }
         
         static void* consume_bed(void* arg) { 
-            int i, k = 0;
-            shared_buffer_t *b = static_cast<shared_buffer_t *>( arg );
+            int i = 0;
+            int k = 0;
+            int pos = 0;
+            char delim = '\t';
+            char newline = '\n';
+            shared_buffer_t* b = static_cast<shared_buffer_t*>( arg );
+            bed_t* bed = NULL;
+            
+            bed = static_cast<bed_t*>( malloc(sizeof(bed_t)) );
+            if (!bed) {
+                std::fprintf(stderr, "Error: Could not allocate space for buffer BED line components\n");
+                std::exit(ENOMEM);
+            }
+            bed->token = chromosome_token;
             
             pthread_mutex_lock(&b->lock);
             for (;;) {
@@ -101,13 +143,61 @@ namespace starch3
                 pthread_mutex_unlock(&b->lock);
                 k = b->next_out;
                 i = 0;
-                do { /* process next line of text from the buffer */
+                bed->chr[pos] = '\0';
+                bed->start_str[pos] = '\0';
+                bed->stop_str[pos] = '\0';
+                bed->id[pos] = '\0';
+                bed->rem[pos] = '\0';
+                /* process next line of text from the buffer */
+                do {
+                    if (b->c[k][i] == delim) {
+                        pos = 0;
+                        bed->token++;
+                        i++;
+                    }
                     if (b->c[k][i] == EOF) {
-                        putc('\n', stdout);
+                        free(bed);
                         pthread_exit(NULL);
                     }
-                    putc(toupper(b->c[k][i++]), stdout);
-                } while ((b->c[k][i-1] != '\n') && (i < S3_BUFFER_SIZE));
+                    switch (bed->token) {
+                    case chromosome_token:
+                        bed->chr[pos] = b->c[k][i++];
+                        bed->chr[++pos] = '\0';
+                        break;
+                    case start_token:
+                        bed->start_str[pos] = b->c[k][i++];
+                        bed->start_str[++pos] = '\0';
+                        break;
+                    case stop_token:
+                        bed->stop_str[pos] = b->c[k][i++];
+                        bed->stop_str[++pos] = '\0';
+                        break;
+                    case id_token:
+                        bed->id[pos] = b->c[k][i++];
+                        bed->id[++pos] = '\0';
+                        break;
+                    case remainder_token:
+                        bed->rem[pos] = b->c[k][i++];
+                        bed->rem[++pos] = '\0';
+                        break;
+                    }
+                } while ((b->c[k][i-1] != newline) && (i < S3_BUFFER_SIZE));
+                switch (bed->token) {
+                case stop_token:
+                    bed->stop_str[--pos] = '\0';
+                    break;
+                case id_token:
+                    bed->id[--pos] = '\0';
+                    break;
+                case remainder_token:
+                    bed->rem[--pos] = '\0';
+                    break;
+                }
+                sscanf(bed->start_str, "%" SCNu64, &bed->start);
+                sscanf(bed->stop_str, "%" SCNu64, &bed->stop);
+                fprintf(stdout, "[%s] [%" PRIu64 "] [%" PRIu64 "] [%s] [%s]\n", bed->chr, bed->start, bed->stop, bed->id, bed->rem);
+                pos = 0;
+                bed->token = chromosome_token;
                 b->next_out = (b->next_out + 1) % S3_BUFFER_LINES;
                 pthread_mutex_lock(&b->lock);
                 b->count--;
@@ -175,10 +265,38 @@ namespace starch3
     };
 
     void Starch::init_sb(starch3::Starch::shared_buffer_t* b) {
-        b->next_in = b->next_out = b->count = 0;
+        b->next_in = 0;
+        b->next_out = 0;
+        b->count = 0;
         pthread_mutex_init(&b->lock, NULL);
         pthread_cond_init(&b->new_data_cond, NULL);
         pthread_cond_init(&b->new_space_cond, NULL);
+        b->in_stream = get_in_stream();
+    }
+
+    void Starch::delete_sb(starch3::Starch::shared_buffer_t* b) {
+        pthread_mutex_destroy(&b->lock);
+        pthread_cond_destroy(&b->new_data_cond);
+        pthread_cond_destroy(&b->new_space_cond);
+        fclose(b->in_stream);
+    }
+
+    FILE* Starch::get_in_stream(void) {
+        return _in_stream;
+    }
+
+    void Starch::init_in_stream(void) {
+        FILE* in_fp = NULL;
+        in_fp = this->get_input_fn().empty() ? stdin : fopen(this->get_input_fn().c_str(), "r");
+        if (!in_fp) {
+            std::fprintf(stderr, "Error: Input file handle could not be created\n");
+            std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
+        }
+        this->set_in_stream(in_fp);
+    }
+
+    void Starch::set_in_stream(FILE* ri_stream) {
+        _in_stream = ri_stream;
     }
 
     std::string Starch::get_input_fn(void) {
@@ -260,6 +378,31 @@ namespace starch3
 #endif
             delete _bz_stream_ptr; 
             break;
+        }
+    }
+
+    void Starch::bzip2_block_close_static_callback(void* s) {
+        reinterpret_cast<starch3::Starch*>(s)->bzip2_block_close_callback();
+    }
+    
+    void Starch::bzip2_block_close_callback(void) {
+        std::fprintf(stderr, "callback -> starch3::Starch::bzip2_block_close_callback() called\n");
+    }
+
+    void Starch::test_stdin_availability(void) {
+        struct stat stats;
+        int stats_res;
+        
+        if ((stats_res = fstat(STDIN_FILENO, &stats)) == -1) {
+            int errsv = errno;
+            std::fprintf(stderr, "Error: fstat() call failed (%s)", (errsv == EBADF ? "EBADF" : (errsv == EIO ? "EIO" : "EOVERFLOW")));
+            this->print_usage(stderr);
+            std::exit(errsv);
+        }
+        if ((S_ISCHR(stats.st_mode) == true) && (S_ISREG(stats.st_mode) == false) && (this->get_input_fn().empty())) {
+            std::fprintf(stderr, "Error: No input is specified; please redirect or pipe in formatted data, or specify filename\n");
+            this->print_usage(stderr);
+            std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
         }
     }
 
