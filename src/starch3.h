@@ -7,12 +7,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
+#include <cinttypes>
 #include <getopt.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <pthread.h>
-#include <stdint.h>
-#include <inttypes.h>
 #include "bzip2/bzlib.h"
 
 #define S3_GENERAL_NAME "starch3"
@@ -21,8 +20,6 @@
 
 #define S3_BUFFER_LINES 2
 #define S3_BUFFER_SIZE 2048
-
-#define __STDC_FORMAT_MACROS
 
 namespace starch3
 {
