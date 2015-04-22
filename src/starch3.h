@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <inttypes.h>
 #include "bzip2/bzlib.h"
 
