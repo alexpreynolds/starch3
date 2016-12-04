@@ -19,12 +19,24 @@
 #define S3_VERSION "0.1"
 #define S3_AUTHORS "Alex Reynolds and Shane Neph"
 
-#define S3_BUFFER_SIZE 2048
-
 namespace starch3
 {
     class Starch 
     {
+        typedef struct bed {
+            char* chr;
+            size_t chr_capacity;
+            char* start_str;
+            size_t start_str_capacity;
+            uint64_t start;
+            char* stop_str;
+            size_t stop_str_capacity;
+            uint64_t stop;
+            char* rem;
+            size_t rem_capacity;
+            int token;
+        } bed_t;
+
         // cf. http://www.cs.fsu.edu/~baker/opsys/examples/prodcons/prodcons3.c
         typedef struct shared_buffer {
             pthread_mutex_t lock;                    // protects the buffer
@@ -36,6 +48,7 @@ namespace starch3
             int next_out;                            // next available line for output
             int count;                               // the number of lines occupied
             FILE* in_stream;                         // input file stream
+            bed_t* bed;                              // bed
         } shared_buffer_t;
 
         typedef enum bed_token {
@@ -44,16 +57,6 @@ namespace starch3
             stop_token,
             remainder_token
         } bed_token_t;
-        
-        typedef struct bed {
-            char chr[S3_BUFFER_SIZE];
-            char start_str[S3_BUFFER_SIZE];
-            uint64_t start;
-            char stop_str[S3_BUFFER_SIZE];
-            uint64_t stop;
-            char rem[S3_BUFFER_SIZE];
-            int token;
-        } bed_t;
 
     private:
         std::string _input_fn;
@@ -87,7 +90,7 @@ namespace starch3
         void print_usage(FILE* wo_stream);
         void print_version(FILE* wo_stream);
 
-        static const int line_min_length = 2;
+        static const int line_min_length = 1024;
         static const int field_min_length = 128;
         static const char field_delimiter = '\t';
         static const char line_delimiter = '\n';
@@ -95,113 +98,148 @@ namespace starch3
         static void* produce_bed(void* arg) {
             size_t line_pos = 0;
             char* new_line = NULL;
-            shared_buffer_t* b = static_cast<shared_buffer_t*>( arg );
+            shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
             
-            pthread_mutex_lock(&b->lock);
+            pthread_mutex_lock(&sb->lock);
             for (;;) {
-                while (b->count == 1) {
-                    pthread_cond_wait(&b->new_space_cond, &b->lock);
+                while (sb->count == 1) {
+                    pthread_cond_wait(&sb->new_space_cond, &sb->lock);
                 }
-                pthread_mutex_unlock(&b->lock);
+                pthread_mutex_unlock(&sb->lock);
                 line_pos = 0;
-                /* read one line of data into the buffer slot */
+                /* read a line of data into the buffer slot */
                 do {  
-                    if ((line_pos + 1) == b->line_capacity) {
-                        new_line = static_cast<char*>( realloc(b->line, b->line_capacity * 2) );
+                    if ((line_pos + 1) == sb->line_capacity) {
+                        new_line = NULL;
+                        new_line = static_cast<char*>( realloc(sb->line, sb->line_capacity * 2) );
                         if (!new_line) {
                             std::fprintf(stderr, "Error: Not enough memory for reallocation of shared_buffer_t line character buffer\n");
                             std::exit(ENOMEM);
                         }
-                        b->line = new_line;
-                        b->line_capacity *= 2;
+                        sb->line = new_line;
+                        sb->line_capacity *= 2;
                     }
-                    if ((b->line[line_pos++] = static_cast<char>( getc(b->in_stream) )) == EOF) {
-                        b->next_in = (b->next_in == 0) ? 1 : 0;
-                        pthread_mutex_lock(&b->lock);
-                        b->count++;
-                        pthread_mutex_unlock(&b->lock);
-                        pthread_cond_signal(&b->new_data_cond);
+                    if ((sb->line[line_pos++] = static_cast<char>( getc(sb->in_stream) )) == EOF) {
+                        sb->next_in = (sb->next_in == 0) ? 1 : 0;
+                        pthread_mutex_lock(&sb->lock);
+                        sb->count++;
+                        pthread_mutex_unlock(&sb->lock);
+                        pthread_cond_signal(&sb->new_data_cond);
                         pthread_exit(NULL);
                     }
-                } while ((b->line[line_pos-1] != line_delimiter));
-                b->next_in = (b->next_in == 0) ? 1 : 0;
-                pthread_mutex_lock(&b->lock);
-                b->count++;
-                pthread_cond_signal(&b->new_data_cond);
+                } while ((sb->line[line_pos-1] != line_delimiter));
+                sb->next_in = (sb->next_in == 0) ? 1 : 0;
+                pthread_mutex_lock(&sb->lock);
+                sb->count++;
+                pthread_cond_signal(&sb->new_data_cond);
             }
         }
         
         static void* consume_bed(void* arg) { 
-            int line_pos = 0;
-            int elem_pos = 0;
-            shared_buffer_t* b = static_cast<shared_buffer_t*>( arg );
-            bed_t* bed = NULL;
+            size_t line_pos = 0;
+            size_t elem_pos = 0;
+            shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
+            char* new_field = NULL;
             
-            bed = static_cast<bed_t*>( malloc(sizeof(bed_t)) );
-            if (!bed) {
-                std::fprintf(stderr, "Error: Could not allocate space for buffer BED line components\n");
-                std::exit(ENOMEM);
-            }
-            bed->token = chromosome_token;
+            sb->bed->token = chromosome_token;
             
-            pthread_mutex_lock(&b->lock);
+            pthread_mutex_lock(&sb->lock);
             for (;;) {
-                while (b->count == 0) {
-                    pthread_cond_wait(&b->new_data_cond, &b->lock);
+                while (sb->count == 0) {
+                    pthread_cond_wait(&sb->new_data_cond, &sb->lock);
                 }
-                pthread_mutex_unlock(&b->lock);
+                pthread_mutex_unlock(&sb->lock);
                 line_pos = 0;
-                bed->chr[elem_pos] = '\0';
-                bed->start_str[elem_pos] = '\0';
-                bed->stop_str[elem_pos] = '\0';
-                bed->rem[elem_pos] = '\0';
+                sb->bed->chr[elem_pos] = '\0';
+                sb->bed->start_str[elem_pos] = '\0';
+                sb->bed->stop_str[elem_pos] = '\0';
+                sb->bed->rem[elem_pos] = '\0';
                 /* process next line of text from the buffer */
                 do {
-                    if ((b->line[line_pos] == field_delimiter) && (bed->token != remainder_token)) {
+                    if ((sb->line[line_pos] == field_delimiter) && (sb->bed->token != remainder_token)) {
                         elem_pos = 0;
-                        bed->token++;
+                        sb->bed->token++;
                         line_pos++;
                     }
-                    if (b->line[line_pos] == EOF) {
-                        free(bed);
+                    if (sb->line[line_pos] == EOF) {
                         pthread_exit(NULL);
                     }
-                    switch (bed->token) {
+                    switch (sb->bed->token) {
                     case chromosome_token:
-                        bed->chr[elem_pos] = b->line[line_pos++];
-                        bed->chr[++elem_pos] = '\0';
+                        if ((elem_pos + 1) == sb->bed->chr_capacity) {
+                            new_field = NULL;
+                            new_field = static_cast<char*>( realloc(sb->bed->chr, sb->bed->chr_capacity * 2) );
+                            if (!new_field) {
+                                std::fprintf(stderr, "Error: Not enough memory for reallocation of buffer BED line chromosome field component\n");
+                                std::exit(ENOMEM);
+                            }
+                            sb->bed->chr = new_field;
+                            sb->bed->chr_capacity *= 2;
+                        }
+                        sb->bed->chr[elem_pos] = sb->line[line_pos++];
+                        sb->bed->chr[++elem_pos] = '\0';
                         break;
                     case start_token:
-                        bed->start_str[elem_pos] = b->line[line_pos++];
-                        bed->start_str[++elem_pos] = '\0';
+                        if ((elem_pos + 1) == sb->bed->start_str_capacity) {
+                            new_field = NULL;
+                            new_field = static_cast<char*>( realloc(sb->bed->start_str, sb->bed->start_str_capacity * 2) );
+                            if (!new_field) {
+                                std::fprintf(stderr, "Error: Not enough memory for reallocation of buffer BED line start field component\n");
+                                std::exit(ENOMEM);
+                            }
+                            sb->bed->start_str = new_field;
+                            sb->bed->start_str_capacity *= 2;
+                        }
+                        sb->bed->start_str[elem_pos] = sb->line[line_pos++];
+                        sb->bed->start_str[++elem_pos] = '\0';
                         break;
                     case stop_token:
-                        bed->stop_str[elem_pos] = b->line[line_pos++];
-                        bed->stop_str[++elem_pos] = '\0';
+                        if ((elem_pos + 1) == sb->bed->stop_str_capacity) {
+                            new_field = NULL;
+                            new_field = static_cast<char*>( realloc(sb->bed->stop_str, sb->bed->stop_str_capacity * 2) );
+                            if (!new_field) {
+                                std::fprintf(stderr, "Error: Not enough memory for reallocation of buffer BED line stop field component\n");
+                                std::exit(ENOMEM);
+                            }
+                            sb->bed->stop_str = new_field;
+                            sb->bed->stop_str_capacity *= 2;
+                        }
+                        sb->bed->stop_str[elem_pos] = sb->line[line_pos++];
+                        sb->bed->stop_str[++elem_pos] = '\0';
                         break;
                     case remainder_token:
-                        bed->rem[elem_pos] = b->line[line_pos++];
-                        bed->rem[++elem_pos] = '\0';
+                        if ((elem_pos + 1) == sb->bed->rem_capacity) {
+                            new_field = NULL;
+                            new_field = static_cast<char*>( realloc(sb->bed->rem, sb->bed->rem_capacity * 2) );
+                            if (!new_field) {
+                                std::fprintf(stderr, "Error: Not enough memory for reallocation of buffer BED line remainder field component\n");
+                                std::exit(ENOMEM);
+                            }
+                            sb->bed->rem = new_field;
+                            sb->bed->rem_capacity *= 2;
+                        }
+                        sb->bed->rem[elem_pos] = sb->line[line_pos++];
+                        sb->bed->rem[++elem_pos] = '\0';
                         break;
                     }
-                } while (b->line[line_pos-1] != line_delimiter);
-                switch (bed->token) {
+                } while (sb->line[line_pos-1] != line_delimiter);
+                switch (sb->bed->token) {
                 case stop_token:
-                    bed->stop_str[--elem_pos] = '\0';
+                    sb->bed->stop_str[--elem_pos] = '\0';
                     break;
                 case remainder_token:
-                    bed->rem[--elem_pos] = '\0';
+                    sb->bed->rem[--elem_pos] = '\0';
                     break;
                 }
-                sscanf(bed->start_str, "%" SCNu64, &bed->start);
-                sscanf(bed->stop_str, "%" SCNu64, &bed->stop);
-                fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", bed->chr, bed->start, bed->stop, bed->rem);
+                sscanf(sb->bed->start_str, "%" SCNu64, &sb->bed->start);
+                sscanf(sb->bed->stop_str, "%" SCNu64, &sb->bed->stop);
+                fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", sb->bed->chr, sb->bed->start, sb->bed->stop, sb->bed->rem);
                 elem_pos = 0;
-                bed->token = chromosome_token;
-                b->next_out = (b->next_out == 0) ? 1 : 0;
-                pthread_mutex_lock(&b->lock);
-                b->count--;
-                pthread_cond_signal(&b->new_space_cond);
+                sb->bed->token = chromosome_token;
+                sb->next_out = (sb->next_out == 0) ? 1 : 0;
+                pthread_mutex_lock(&sb->lock);
+                sb->count--;
+                pthread_cond_signal(&sb->new_space_cond);
             }
         }
     
@@ -264,38 +302,93 @@ namespace starch3
         static void bzip2_block_close_static_callback(void* s);
     };
 
-    void Starch::init_sb(starch3::Starch::shared_buffer_t* b) {
-        b->next_in = 0;
-        b->next_out = 0;
-        b->count = 0;
-        b->line = NULL;
-        b->line = static_cast<char*>( malloc(starch3::Starch::line_min_length) );
-        if (!b->line) {
+    void Starch::init_sb(starch3::Starch::shared_buffer_t* sb) {
+        sb->next_in = 0;
+        sb->next_out = 0;
+        sb->count = 0;
+        sb->line = NULL;
+        sb->line = static_cast<char*>( malloc(starch3::Starch::line_min_length) );
+        if (!sb->line) {
             std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t line character buffer\n");
             std::exit(ENOMEM);
         }
-        b->line_capacity = starch3::Starch::line_min_length;
-        pthread_mutex_init(&b->lock, NULL);
-        pthread_cond_init(&b->new_data_cond, NULL);
-        pthread_cond_init(&b->new_space_cond, NULL);
-        b->in_stream = get_in_stream();
+        sb->line_capacity = starch3::Starch::line_min_length;
+        sb->bed = static_cast<bed_t*>( malloc(sizeof(bed_t)) );
+        if (!sb->bed) {
+            std::fprintf(stderr, "Error: Could not allocate space for buffer BED line components\n");
+            std::exit(ENOMEM);
+        }
+        sb->bed->chr = NULL;
+        sb->bed->chr = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        if (!sb->bed->chr) {
+            std::fprintf(stderr, "Error: Could not allocate space for buffer BED line chromosome field component\n");
+            std::exit(ENOMEM);
+        }
+        sb->bed->chr_capacity = starch3::Starch::field_min_length;
+        sb->bed->start_str = NULL;
+        sb->bed->start_str = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        if (!sb->bed->start_str) {
+            std::fprintf(stderr, "Error: Could not allocate space for buffer BED line start field component\n");
+            std::exit(ENOMEM);
+        }
+        sb->bed->start_str_capacity = starch3::Starch::field_min_length;
+        sb->bed->stop_str = NULL;
+        sb->bed->stop_str = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        if (!sb->bed->stop_str) {
+            std::fprintf(stderr, "Error: Could not allocate space for buffer BED line stop field component\n");
+            std::exit(ENOMEM);
+        }
+        sb->bed->stop_str_capacity = starch3::Starch::field_min_length;
+        sb->bed->rem = NULL;
+        sb->bed->rem = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        if (!sb->bed->rem) {
+            std::fprintf(stderr, "Error: Could not allocate space for buffer BED line remainder field component\n");
+            std::exit(ENOMEM);
+        }
+        sb->bed->rem_capacity = starch3::Starch::field_min_length;
+        pthread_mutex_init(&sb->lock, NULL);
+        pthread_cond_init(&sb->new_data_cond, NULL);
+        pthread_cond_init(&sb->new_space_cond, NULL);
+        sb->in_stream = get_in_stream();
 #ifdef DEBUG
-        std::fprintf(stderr, "--- starch3::Starch::init_sb() - shared_buffer_t* b initialized ---\n");
+        std::fprintf(stderr, "--- starch3::Starch::init_sb() - shared_buffer_t* sb initialized ---\n");
 #endif
     }
 
-    void Starch::delete_sb(starch3::Starch::shared_buffer_t* b) {
-        pthread_mutex_destroy(&b->lock);
-        pthread_cond_destroy(&b->new_data_cond);
-        pthread_cond_destroy(&b->new_space_cond);
-        fclose(b->in_stream);
-        if (b->line) {
-            free(b->line);
-            b->line = NULL;
-            b->line_capacity = 0;
+    void Starch::delete_sb(starch3::Starch::shared_buffer_t* sb) {
+        pthread_mutex_destroy(&sb->lock);
+        pthread_cond_destroy(&sb->new_data_cond);
+        pthread_cond_destroy(&sb->new_space_cond);
+        fclose(sb->in_stream);
+        if (sb->line) {
+            free(sb->line);
+            sb->line = NULL;
+            sb->line_capacity = 0;
+        }
+        if (sb->bed) {
+            if (sb->bed->chr) {
+                free(sb->bed->chr);
+                sb->bed->chr = NULL;
+                sb->bed->chr_capacity = 0;
+            }
+            if (sb->bed->start_str) {
+                free(sb->bed->start_str);
+                sb->bed->start_str = NULL;
+                sb->bed->start_str_capacity = 0;
+            }
+            if (sb->bed->stop_str) {
+                free(sb->bed->stop_str);
+                sb->bed->stop_str = NULL;
+                sb->bed->stop_str_capacity = 0;
+            }
+            if (sb->bed->rem) {
+                free(sb->bed->rem);
+                sb->bed->rem = NULL;
+                sb->bed->rem_capacity = 0;
+            }
         }
 #ifdef DEBUG
-        std::fprintf(stderr, "--- starch3::Starch::delete_sb() - shared_buffer_t* b released ---\n");
+        std::fprintf(stderr, "--- starch3::Starch::delete_sb() - shared_buffer_t* sb released ---\n");
 #endif
     }
 
