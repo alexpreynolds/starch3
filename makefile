@@ -45,7 +45,7 @@ jansson:
 		mkdir "${JSON_DIR}"; \
 		tar zxvf "${JSON_ARC}" -C "${THIRD_PARTY}"; \
 		ln -sf ${JSON_DIR} ${JSON_SYM_DIR}; \
-		cd ${JSON_SYM_DIR} && ./configure --prefix=${JSON_SYM_DIR} && make && make install && cd ${CWD}; \
+		cd ${JSON_SYM_DIR} && export CC=${CC} && export CXX=${CXX} && ./configure --prefix=${JSON_SYM_DIR} && ${MAKE} && ${MAKE} install && cd ${CWD}; \
 	fi
 
 clean:
