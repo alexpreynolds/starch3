@@ -23,6 +23,13 @@ namespace starch3
 {
     class Starch 
     {
+        typedef enum bed_token {
+            chromosome_token,
+            start_token,
+            stop_token,
+            remainder_token
+        } bed_token_t;
+
         typedef struct bed {
             char* chr;
             size_t chr_capacity;
@@ -48,15 +55,8 @@ namespace starch3
             int next_out;                            // next available line for output
             int count;                               // the number of lines occupied
             FILE* in_stream;                         // input file stream
-            bed_t* bed;                              // bed
+            bed_t* bed;                              // bed field components
         } shared_buffer_t;
-
-        typedef enum bed_token {
-            chromosome_token,
-            start_token,
-            stop_token,
-            remainder_token
-        } bed_token_t;
 
     private:
         std::string _input_fn;

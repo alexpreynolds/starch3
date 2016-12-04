@@ -11,10 +11,8 @@ before_install:
   - if [ "$CXX" == "g++" ]; then sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test; fi
   - sudo apt-get update -qq
 install:
-  - if [ "$CC" == "gcc" ]; then sudo apt-get install -qq gcc-4.8; fi
-  - if [ "$CC" == "gcc" ]; then sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 50; fi
-  - if [ "$CXX" == "g++" ]; then sudo apt-get install -qq g++-4.8; fi
-  - if [ "$CXX" == "g++" ]; then sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 50; fi
+  - if [ "$CC" == "gcc" ]; then sudo apt-get install -qq gcc-4.8; sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 50; fi
+  - if [ "$CXX" == "g++" ]; then sudo apt-get install -qq g++-4.8; sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 50; fi
 script: $CC --version && $CXX --version && make
 matrix:
   allow_failures:
