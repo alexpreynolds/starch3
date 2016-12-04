@@ -386,6 +386,8 @@ namespace starch3
                 sb->bed->rem = NULL;
                 sb->bed->rem_capacity = 0;
             }
+            free(sb->bed);
+            sb->bed = NULL;
         }
 #ifdef DEBUG
         std::fprintf(stderr, "--- starch3::Starch::delete_sb() - shared_buffer_t* sb released ---\n");
