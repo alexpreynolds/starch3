@@ -12,13 +12,13 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <pthread.h>
-#include "bzip2/bzlib.h"
+#include "bzlib.h"
 
 #define S3_GENERAL_NAME "starch3"
 #define S3_VERSION "0.1"
 #define S3_AUTHORS "Alex Reynolds and Shane Neph"
 
-#define S3_BUFFER_LINES 2
+#define S3_BUFFER_LINES 1
 #define S3_BUFFER_SIZE 2048
 
 namespace starch3
@@ -41,7 +41,6 @@ namespace starch3
             chromosome_token,
             start_token,
             stop_token,
-            id_token,
             remainder_token
         } bed_token_t;
         
@@ -58,13 +57,13 @@ namespace starch3
 
     private:
         std::string _input_fn;
-	std::string _note;
-	bz_stream* _bz_stream_ptr;
+        std::string _note;
+        bz_stream* _bz_stream_ptr;
         FILE* _in_stream;
 
     public:
-	Starch();
-	~Starch();
+        Starch();
+        ~Starch();
 
         pthread_t produce_bed_thread;
         pthread_t consume_bed_thread;
@@ -84,7 +83,7 @@ namespace starch3
         void delete_bz_stream_ptr(void);
         void bzip2_block_close_callback(void);
         void init_command_line_options(int argc, char** argv);
-	void test_stdin_availability(void);
+        void test_stdin_availability(void);
         void print_usage(FILE* wo_stream);
         void print_version(FILE* wo_stream);
         
@@ -95,8 +94,9 @@ namespace starch3
             
             pthread_mutex_lock(&b->lock);
             for (;;) {
-                while (b->count == S3_BUFFER_LINES)
+                while (b->count == S3_BUFFER_LINES) {
                     pthread_cond_wait(&b->new_space_cond, &b->lock);
+                }
                 pthread_mutex_unlock(&b->lock);
                 k = b->next_in;
                 i = 0;
@@ -148,7 +148,7 @@ namespace starch3
                 bed->rem[pos] = '\0';
                 /* process next line of text from the buffer */
                 do {
-                    if (b->c[k][i] == delim) {
+                    if ((b->c[k][i] == delim) && (bed->token != remainder_token)) {
                         pos = 0;
                         bed->token++;
                         i++;
@@ -170,10 +170,6 @@ namespace starch3
                         bed->stop_str[pos] = b->c[k][i++];
                         bed->stop_str[++pos] = '\0';
                         break;
-                    case id_token:
-                        bed->id[pos] = b->c[k][i++];
-                        bed->id[++pos] = '\0';
-                        break;
                     case remainder_token:
                         bed->rem[pos] = b->c[k][i++];
                         bed->rem[++pos] = '\0';
@@ -184,16 +180,13 @@ namespace starch3
                 case stop_token:
                     bed->stop_str[--pos] = '\0';
                     break;
-                case id_token:
-                    bed->id[--pos] = '\0';
-                    break;
                 case remainder_token:
                     bed->rem[--pos] = '\0';
                     break;
                 }
                 sscanf(bed->start_str, "%" SCNu64, &bed->start);
                 sscanf(bed->stop_str, "%" SCNu64, &bed->stop);
-                fprintf(stdout, "[%s] [%" PRIu64 "] [%" PRIu64 "] [%s] [%s]\n", bed->chr, bed->start, bed->stop, bed->id, bed->rem);
+                fprintf(stdout, "[%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", bed->chr, bed->start, bed->stop, bed->rem);
                 pos = 0;
                 bed->token = chromosome_token;
                 b->next_out = (b->next_out + 1) % S3_BUFFER_LINES;
