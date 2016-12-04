@@ -13,12 +13,12 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include "bzlib.h"
+#include "jansson.h"
 
 #define S3_GENERAL_NAME "starch3"
 #define S3_VERSION "0.1"
 #define S3_AUTHORS "Alex Reynolds and Shane Neph"
 
-#define S3_BUFFER_LINES 1
 #define S3_BUFFER_SIZE 2048
 
 namespace starch3
@@ -30,7 +30,8 @@ namespace starch3
             pthread_mutex_t lock;                    // protects the buffer
             pthread_cond_t new_data_cond;            // to wait when the buffer is empty
             pthread_cond_t new_space_cond;           // to wait when the buffer is full
-            char c[S3_BUFFER_LINES][S3_BUFFER_SIZE]; // an array of lines, to hold the text
+            char* line;                              // line text
+            size_t line_capacity;
             int next_in;                             // next available line for input
             int next_out;                            // next available line for output
             int count;                               // the number of lines occupied
@@ -50,7 +51,6 @@ namespace starch3
             uint64_t start;
             char stop_str[S3_BUFFER_SIZE];
             uint64_t stop;
-            char id[S3_BUFFER_SIZE];
             char rem[S3_BUFFER_SIZE];
             int token;
         } bed_t;
@@ -86,32 +86,45 @@ namespace starch3
         void test_stdin_availability(void);
         void print_usage(FILE* wo_stream);
         void print_version(FILE* wo_stream);
+
+        static const int line_min_length = 2;
+        static const int field_min_length = 128;
+        static const char field_delimiter = '\t';
+        static const char line_delimiter = '\n';
         
         static void* produce_bed(void* arg) {
-            int i = 0;
-            int k = 0;
+            size_t line_pos = 0;
+            char* new_line = NULL;
             shared_buffer_t* b = static_cast<shared_buffer_t*>( arg );
             
             pthread_mutex_lock(&b->lock);
             for (;;) {
-                while (b->count == S3_BUFFER_LINES) {
+                while (b->count == 1) {
                     pthread_cond_wait(&b->new_space_cond, &b->lock);
                 }
                 pthread_mutex_unlock(&b->lock);
-                k = b->next_in;
-                i = 0;
+                line_pos = 0;
                 /* read one line of data into the buffer slot */
                 do {  
-                    if ((b->c[k][i++] = static_cast<char>( getc(b->in_stream) )) == EOF) {
-                        b->next_in = (b->next_in + 1) % S3_BUFFER_LINES;
+                    if ((line_pos + 1) == b->line_capacity) {
+                        new_line = static_cast<char*>( realloc(b->line, b->line_capacity * 2) );
+                        if (!new_line) {
+                            std::fprintf(stderr, "Error: Not enough memory for reallocation of shared_buffer_t line character buffer\n");
+                            std::exit(ENOMEM);
+                        }
+                        b->line = new_line;
+                        b->line_capacity *= 2;
+                    }
+                    if ((b->line[line_pos++] = static_cast<char>( getc(b->in_stream) )) == EOF) {
+                        b->next_in = (b->next_in == 0) ? 1 : 0;
                         pthread_mutex_lock(&b->lock);
                         b->count++;
                         pthread_mutex_unlock(&b->lock);
                         pthread_cond_signal(&b->new_data_cond);
                         pthread_exit(NULL);
                     }
-                } while ((b->c[k][i-1] != '\n') && (i < S3_BUFFER_SIZE));
-                b->next_in = (b->next_in + 1) % S3_BUFFER_LINES;
+                } while ((b->line[line_pos-1] != line_delimiter));
+                b->next_in = (b->next_in == 0) ? 1 : 0;
                 pthread_mutex_lock(&b->lock);
                 b->count++;
                 pthread_cond_signal(&b->new_data_cond);
@@ -119,11 +132,8 @@ namespace starch3
         }
         
         static void* consume_bed(void* arg) { 
-            int i = 0;
-            int k = 0;
-            int pos = 0;
-            char delim = '\t';
-            char newline = '\n';
+            int line_pos = 0;
+            int elem_pos = 0;
             shared_buffer_t* b = static_cast<shared_buffer_t*>( arg );
             bed_t* bed = NULL;
             
@@ -136,60 +146,59 @@ namespace starch3
             
             pthread_mutex_lock(&b->lock);
             for (;;) {
-                while (b->count == 0)
+                while (b->count == 0) {
                     pthread_cond_wait(&b->new_data_cond, &b->lock);
+                }
                 pthread_mutex_unlock(&b->lock);
-                k = b->next_out;
-                i = 0;
-                bed->chr[pos] = '\0';
-                bed->start_str[pos] = '\0';
-                bed->stop_str[pos] = '\0';
-                bed->id[pos] = '\0';
-                bed->rem[pos] = '\0';
+                line_pos = 0;
+                bed->chr[elem_pos] = '\0';
+                bed->start_str[elem_pos] = '\0';
+                bed->stop_str[elem_pos] = '\0';
+                bed->rem[elem_pos] = '\0';
                 /* process next line of text from the buffer */
                 do {
-                    if ((b->c[k][i] == delim) && (bed->token != remainder_token)) {
-                        pos = 0;
+                    if ((b->line[line_pos] == field_delimiter) && (bed->token != remainder_token)) {
+                        elem_pos = 0;
                         bed->token++;
-                        i++;
+                        line_pos++;
                     }
-                    if (b->c[k][i] == EOF) {
+                    if (b->line[line_pos] == EOF) {
                         free(bed);
                         pthread_exit(NULL);
                     }
                     switch (bed->token) {
                     case chromosome_token:
-                        bed->chr[pos] = b->c[k][i++];
-                        bed->chr[++pos] = '\0';
+                        bed->chr[elem_pos] = b->line[line_pos++];
+                        bed->chr[++elem_pos] = '\0';
                         break;
                     case start_token:
-                        bed->start_str[pos] = b->c[k][i++];
-                        bed->start_str[++pos] = '\0';
+                        bed->start_str[elem_pos] = b->line[line_pos++];
+                        bed->start_str[++elem_pos] = '\0';
                         break;
                     case stop_token:
-                        bed->stop_str[pos] = b->c[k][i++];
-                        bed->stop_str[++pos] = '\0';
+                        bed->stop_str[elem_pos] = b->line[line_pos++];
+                        bed->stop_str[++elem_pos] = '\0';
                         break;
                     case remainder_token:
-                        bed->rem[pos] = b->c[k][i++];
-                        bed->rem[++pos] = '\0';
+                        bed->rem[elem_pos] = b->line[line_pos++];
+                        bed->rem[++elem_pos] = '\0';
                         break;
                     }
-                } while ((b->c[k][i-1] != newline) && (i < S3_BUFFER_SIZE));
+                } while (b->line[line_pos-1] != line_delimiter);
                 switch (bed->token) {
                 case stop_token:
-                    bed->stop_str[--pos] = '\0';
+                    bed->stop_str[--elem_pos] = '\0';
                     break;
                 case remainder_token:
-                    bed->rem[--pos] = '\0';
+                    bed->rem[--elem_pos] = '\0';
                     break;
                 }
                 sscanf(bed->start_str, "%" SCNu64, &bed->start);
                 sscanf(bed->stop_str, "%" SCNu64, &bed->stop);
-                fprintf(stdout, "[%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", bed->chr, bed->start, bed->stop, bed->rem);
-                pos = 0;
+                fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", bed->chr, bed->start, bed->stop, bed->rem);
+                elem_pos = 0;
                 bed->token = chromosome_token;
-                b->next_out = (b->next_out + 1) % S3_BUFFER_LINES;
+                b->next_out = (b->next_out == 0) ? 1 : 0;
                 pthread_mutex_lock(&b->lock);
                 b->count--;
                 pthread_cond_signal(&b->new_space_cond);
@@ -252,17 +261,27 @@ namespace starch3
             return &_s[0];
         }
 
-	static void bzip2_block_close_static_callback(void* s);
+        static void bzip2_block_close_static_callback(void* s);
     };
 
     void Starch::init_sb(starch3::Starch::shared_buffer_t* b) {
         b->next_in = 0;
         b->next_out = 0;
         b->count = 0;
+        b->line = NULL;
+        b->line = static_cast<char*>( malloc(starch3::Starch::line_min_length) );
+        if (!b->line) {
+            std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t line character buffer\n");
+            std::exit(ENOMEM);
+        }
+        b->line_capacity = starch3::Starch::line_min_length;
         pthread_mutex_init(&b->lock, NULL);
         pthread_cond_init(&b->new_data_cond, NULL);
         pthread_cond_init(&b->new_space_cond, NULL);
         b->in_stream = get_in_stream();
+#ifdef DEBUG
+        std::fprintf(stderr, "--- starch3::Starch::init_sb() - shared_buffer_t* b initialized ---\n");
+#endif
     }
 
     void Starch::delete_sb(starch3::Starch::shared_buffer_t* b) {
@@ -270,6 +289,14 @@ namespace starch3
         pthread_cond_destroy(&b->new_data_cond);
         pthread_cond_destroy(&b->new_space_cond);
         fclose(b->in_stream);
+        if (b->line) {
+            free(b->line);
+            b->line = NULL;
+            b->line_capacity = 0;
+        }
+#ifdef DEBUG
+        std::fprintf(stderr, "--- starch3::Starch::delete_sb() - shared_buffer_t* b released ---\n");
+#endif
     }
 
     FILE* Starch::get_in_stream(void) {
