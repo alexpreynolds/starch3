@@ -107,7 +107,7 @@ namespace starch3
                 }
                 pthread_mutex_unlock(&sb->lock);
                 line_pos = 0;
-                /* read a line of data into the buffer slot */
+                /* read a line of data into the buffer */
                 do {  
                     if ((line_pos + 1) == sb->line_capacity) {
                         new_line = NULL;
