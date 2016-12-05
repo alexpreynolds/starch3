@@ -15,19 +15,22 @@
 #include "bzlib.h"
 #include "jansson.h"
 
-#define S3_GENERAL_NAME "starch3"
-#define S3_VERSION "0.1"
-#define S3_AUTHORS "Alex Reynolds and Shane Neph"
-
 namespace starch3
 {
     class Starch 
     {
+        typedef enum compression_method {
+            k_bzip2 = 0,
+            k_gzip,
+            k_compression_method_undefined
+        } compression_method_t;
+
         typedef enum bed_token {
-            chromosome_token,
-            start_token,
-            stop_token,
-            remainder_token
+            k_chromosome_token = 0,
+            k_start_token,
+            k_stop_token,
+            k_remainder_token,
+            k_bed_token_undefined
         } bed_token_t;
 
         typedef struct bed {
@@ -63,6 +66,7 @@ namespace starch3
         std::string _note;
         bz_stream* _bz_stream_ptr;
         FILE* _in_stream;
+        compression_method_t _compression_method;
 
     public:
         Starch();
@@ -72,15 +76,19 @@ namespace starch3
         pthread_t consume_bed_thread;
         shared_buffer_t bed_sb;
 
-        void init_sb(starch3::Starch::shared_buffer_t* b);
-        void delete_sb(starch3::Starch::shared_buffer_t* b);
+        void init_shared_buffer(starch3::Starch::shared_buffer_t* b);
+        void delete_shared_buffer(starch3::Starch::shared_buffer_t* b);
         FILE* get_in_stream(void);
         void init_in_stream(void);
         void set_in_stream(FILE* ri_stream);
         std::string get_input_fn(void);
         void set_input_fn(std::string s);
+        void init_out_stream(void);
+        void delete_out_stream(void);
         std::string get_note(void);
         void set_note(std::string s);
+        Starch::compression_method_t get_compression_method(void);
+        void set_compression_method(Starch::compression_method_t t);
         void init_bz_stream_ptr(void);
         void setup_bz_stream_callbacks(starch3::Starch* h);
         void delete_bz_stream_ptr(void);
@@ -90,8 +98,23 @@ namespace starch3
         void print_usage(FILE* wo_stream);
         void print_version(FILE* wo_stream);
 
-        static const int line_min_length = 1024;
-        static const int field_min_length = 128;
+        // client-specific
+        static const compression_method_t client_starch_default_compression_method;
+        static const std::string client_name;
+        static const std::string client_version;
+        static const std::string client_authors;
+        std::string get_client_starch_opt_string(void);
+        struct option* get_client_starch_long_options(void);
+        std::string get_client_starch_name(void);
+        std::string get_client_starch_version(void);
+        std::string get_client_starch_authors(void);
+        std::string get_client_starch_usage(void);
+        std::string get_client_starch_description(void);
+        std::string get_client_starch_io_options(void);
+        std::string get_client_starch_general_options(void);
+
+        static const int line_initial_length = 1024;
+        static const int field_initial_length = 128;
         static const char field_delimiter = '\t';
         static const char line_delimiter = '\n';
         
@@ -141,7 +164,7 @@ namespace starch3
             shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
             char* new_field = NULL;
             
-            sb->bed->token = chromosome_token;
+            sb->bed->token = k_chromosome_token;
             
             pthread_mutex_lock(&sb->lock);
             for (;;) {
@@ -156,7 +179,7 @@ namespace starch3
                 sb->bed->rem[elem_pos] = '\0';
                 /* process next line of text from the buffer */
                 do {
-                    if ((sb->line[line_pos] == field_delimiter) && (sb->bed->token != remainder_token)) {
+                    if ((sb->line[line_pos] == field_delimiter) && (sb->bed->token != k_remainder_token)) {
                         elem_pos = 0;
                         sb->bed->token++;
                         line_pos++;
@@ -165,7 +188,7 @@ namespace starch3
                         pthread_exit(NULL);
                     }
                     switch (sb->bed->token) {
-                    case chromosome_token:
+                    case k_chromosome_token:
                         if ((elem_pos + 1) == sb->bed->chr_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->chr, sb->bed->chr_capacity * 2) );
@@ -179,7 +202,7 @@ namespace starch3
                         sb->bed->chr[elem_pos] = sb->line[line_pos++];
                         sb->bed->chr[++elem_pos] = '\0';
                         break;
-                    case start_token:
+                    case k_start_token:
                         if ((elem_pos + 1) == sb->bed->start_str_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->start_str, sb->bed->start_str_capacity * 2) );
@@ -193,7 +216,7 @@ namespace starch3
                         sb->bed->start_str[elem_pos] = sb->line[line_pos++];
                         sb->bed->start_str[++elem_pos] = '\0';
                         break;
-                    case stop_token:
+                    case k_stop_token:
                         if ((elem_pos + 1) == sb->bed->stop_str_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->stop_str, sb->bed->stop_str_capacity * 2) );
@@ -207,7 +230,7 @@ namespace starch3
                         sb->bed->stop_str[elem_pos] = sb->line[line_pos++];
                         sb->bed->stop_str[++elem_pos] = '\0';
                         break;
-                    case remainder_token:
+                    case k_remainder_token:
                         if ((elem_pos + 1) == sb->bed->rem_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->rem, sb->bed->rem_capacity * 2) );
@@ -224,10 +247,10 @@ namespace starch3
                     }
                 } while (sb->line[line_pos-1] != line_delimiter);
                 switch (sb->bed->token) {
-                case stop_token:
+                case k_stop_token:
                     sb->bed->stop_str[--elem_pos] = '\0';
                     break;
-                case remainder_token:
+                case k_remainder_token:
                     sb->bed->rem[--elem_pos] = '\0';
                     break;
                 }
@@ -235,117 +258,61 @@ namespace starch3
                 sscanf(sb->bed->stop_str, "%" SCNu64, &sb->bed->stop);
                 fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", sb->bed->chr, sb->bed->start, sb->bed->stop, sb->bed->rem);
                 elem_pos = 0;
-                sb->bed->token = chromosome_token;
+                sb->bed->token = k_chromosome_token;
                 sb->next_out = (sb->next_out == 0) ? 1 : 0;
                 pthread_mutex_lock(&sb->lock);
                 sb->count--;
                 pthread_cond_signal(&sb->new_space_cond);
             }
         }
-    
-        static const std::string& general_name() {
-            static std::string _s(S3_GENERAL_NAME);
-            return _s;
-        }
-        static const std::string& version() {
-            static std::string _s(S3_VERSION);
-            return _s;
-        }
-        static const std::string& authors() {
-            static std::string _s(S3_AUTHORS);
-            return _s;
-        }
-        static const std::string& general_usage() {
-            static std::string _s("\n"                                  \
-                                  "  Usage:\n"                          \
-                                  "\n"                                  \
-                                  "  $ starch3 [options] < input > output\n" \
-                                  "\n"                                  \
-                                  "  Or:\n"                             \
-                                  "\n"                                  \
-                                  "  $ starch3 [options] input > output\n");
-            return _s;
-        }
-        static const std::string& general_description() {
-            static std::string _s(                                      \
-                                  "  Compress sorted BED data to BEDOPS Starch archive format.\n");
-            return _s;
-        }
-        static const std::string& general_io_options() {
-            static std::string _s("  General Options:\n\n"		\
-				  "  --note=\"foo bar...\"   Append note to output archive metadata (optional)\n");
-            return _s; 
-        }
-        static const std::string& general_options() {
-            static std::string _s("  Process Flags:\n\n"		\
-				  "  --help                  Show this usage message\n" \
-				  "  --version               Show binary version\n");
-            return _s;
-        }
-        static const std::string& client_opt_string() {
-            static std::string _s("n:hv?");
-            return _s;
-        }
-        static const struct option* client_long_options() {
-            static struct option _n = { "note",     required_argument,         NULL,    'n' };
-            static struct option _h = { "help",           no_argument,         NULL,    'h' };
-            static struct option _w = { "version",        no_argument,         NULL,    'w' };
-            static struct option _0 = { NULL,             no_argument,         NULL,     0  };
-            static std::vector<struct option> _s;
-            _s.push_back(_n);
-            _s.push_back(_h);
-            _s.push_back(_w);
-            _s.push_back(_0);
-            return &_s[0];
-        }
 
         static void bzip2_block_close_static_callback(void* s);
     };
 
-    void Starch::init_sb(starch3::Starch::shared_buffer_t* sb) {
+    void Starch::init_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
         sb->next_in = 0;
         sb->next_out = 0;
         sb->count = 0;
         sb->line = NULL;
-        sb->line = static_cast<char*>( malloc(starch3::Starch::line_min_length) );
+        sb->line = static_cast<char*>( malloc(starch3::Starch::line_initial_length) );
         if (!sb->line) {
             std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t line character buffer\n");
             std::exit(ENOMEM);
         }
-        sb->line_capacity = starch3::Starch::line_min_length;
+        sb->line_capacity = starch3::Starch::line_initial_length;
         sb->bed = static_cast<bed_t*>( malloc(sizeof(bed_t)) );
         if (!sb->bed) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line components\n");
             std::exit(ENOMEM);
         }
         sb->bed->chr = NULL;
-        sb->bed->chr = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        sb->bed->chr = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
         if (!sb->bed->chr) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line chromosome field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->chr_capacity = starch3::Starch::field_min_length;
+        sb->bed->chr_capacity = starch3::Starch::field_initial_length;
         sb->bed->start_str = NULL;
-        sb->bed->start_str = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        sb->bed->start_str = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
         if (!sb->bed->start_str) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line start field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->start_str_capacity = starch3::Starch::field_min_length;
+        sb->bed->start_str_capacity = starch3::Starch::field_initial_length;
         sb->bed->stop_str = NULL;
-        sb->bed->stop_str = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        sb->bed->stop_str = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
         if (!sb->bed->stop_str) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line stop field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->stop_str_capacity = starch3::Starch::field_min_length;
+        sb->bed->stop_str_capacity = starch3::Starch::field_initial_length;
         sb->bed->rem = NULL;
-        sb->bed->rem = static_cast<char*>( malloc(starch3::Starch::field_min_length) );
+        sb->bed->rem = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
         if (!sb->bed->rem) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line remainder field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->rem_capacity = starch3::Starch::field_min_length;
+        sb->bed->rem_capacity = starch3::Starch::field_initial_length;
         pthread_mutex_init(&sb->lock, NULL);
         pthread_cond_init(&sb->new_data_cond, NULL);
         pthread_cond_init(&sb->new_space_cond, NULL);
@@ -355,7 +322,7 @@ namespace starch3
 #endif
     }
 
-    void Starch::delete_sb(starch3::Starch::shared_buffer_t* sb) {
+    void Starch::delete_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
         pthread_mutex_destroy(&sb->lock);
         pthread_cond_destroy(&sb->new_data_cond);
         pthread_cond_destroy(&sb->new_space_cond);
@@ -426,6 +393,31 @@ namespace starch3
             std::exit(ENODATA); /* No message is available on the STREAM head read queue (POSIX.1) */
         }
     }
+
+    void Starch::init_out_stream(void) {
+        switch (this->get_compression_method()) {
+        case k_bzip2:
+            this->init_bz_stream_ptr();
+            this->setup_bz_stream_callbacks(this);
+            break;
+        case k_gzip:
+            break;
+        case k_compression_method_undefined:
+            break;
+        }
+    }
+
+    void Starch::delete_out_stream(void) {
+        switch (this->get_compression_method()) {
+        case k_bzip2:
+            this->delete_bz_stream_ptr();
+            break;
+        case k_gzip:
+            break;
+        case k_compression_method_undefined:
+            break;
+        }
+    }
     
     std::string Starch::get_note(void) {
         return _note;
@@ -433,6 +425,14 @@ namespace starch3
     
     void Starch::set_note(std::string s) {
         _note = s;
+    }
+
+    Starch::compression_method_t Starch::get_compression_method(void) {
+        return _compression_method;
+    }
+
+    void Starch::set_compression_method(Starch::compression_method_t t) {
+        _compression_method = t;
     }
 
     void Starch::init_bz_stream_ptr(void) { 
@@ -474,11 +474,15 @@ namespace starch3
     }
 
     void Starch::setup_bz_stream_callbacks(starch3::Starch* h) {
+        if (!_bz_stream_ptr)
+            return;
         _bz_stream_ptr->handler = &h;
         _bz_stream_ptr->block_close_functor = bzip2_block_close_static_callback;
     }
 
-    void Starch::delete_bz_stream_ptr(void) { 
+    void Starch::delete_bz_stream_ptr(void) {
+        if (!_bz_stream_ptr)
+            return;
         // release all memory associated with the compression stream before ptr deletion
         int end_res = BZ2_bzCompressEnd(_bz_stream_ptr);
         switch (end_res) {
@@ -520,6 +524,8 @@ namespace starch3
     }
 
     Starch::Starch() {
+        this->set_note(std::string());
+        this->set_compression_method(k_compression_method_undefined);
     }
 
     Starch::~Starch() {

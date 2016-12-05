@@ -1,5 +1,10 @@
 #include "starch3.hpp"
 
+const std::string starch3::Starch::client_name = "starch3";
+const std::string starch3::Starch::client_version = "0.1";
+const std::string starch3::Starch::client_authors = "Alex Reynolds and Shane Neph";
+const starch3::Starch::compression_method_t starch3::Starch::client_starch_default_compression_method = k_bzip2;
+
 // global pointer to state-maintaining instance
 
 starch3::Starch* starch3::self = NULL;
@@ -20,26 +25,48 @@ main(int argc, char** argv)
     starch.test_stdin_availability();
     starch.init_in_stream();
 
-    //std::fprintf(stderr, "note: [%s]\n", starch.get_note().c_str());
-    //std::fprintf(stderr, "inputFn: [%s]\n", starch.get_input_fn().c_str());
+    starch.init_out_stream();
 
-    starch.init_bz_stream_ptr();
-    starch.setup_bz_stream_callbacks(starch3::self);
-
-    starch.init_sb(&starch.bed_sb);
+    starch.init_shared_buffer(&starch.bed_sb);
     pthread_create(&starch.produce_bed_thread, NULL, starch3::Starch::produce_bed, &starch.bed_sb);
     pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.bed_sb);
     pthread_join(starch.produce_bed_thread, NULL); 
     pthread_join(starch.consume_bed_thread, NULL); 
-    starch.delete_sb(&starch.bed_sb);
+    starch.delete_shared_buffer(&starch.bed_sb);
 
-    starch.delete_bz_stream_ptr();
+    starch.delete_out_stream();
 
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::main() - leave ---\n");
 #endif
 
     return EXIT_SUCCESS;
+}
+
+std::string
+starch3::Starch::get_client_starch_opt_string(void) 
+{
+    static std::string _s("n:bghv?");
+    return _s;
+}
+
+struct option* 
+starch3::Starch::get_client_starch_long_options(void) 
+{
+    static struct option _n = { "note",     required_argument,         NULL,    'n' };
+    static struct option _b = { "bzip2",          no_argument,         NULL,    'b' };
+    static struct option _g = { "gzip",           no_argument,         NULL,    'g' };
+    static struct option _h = { "help",           no_argument,         NULL,    'h' };
+    static struct option _w = { "version",        no_argument,         NULL,    'w' };
+    static struct option _0 = { NULL,             no_argument,         NULL,     0  };
+    static std::vector<struct option> _s;
+    _s.push_back(_n);
+    _s.push_back(_b);
+    _s.push_back(_g);
+    _s.push_back(_h);
+    _s.push_back(_w);
+    _s.push_back(_0);
+    return &_s[0];
 }
 
 void
@@ -52,34 +79,42 @@ starch3::Starch::init_command_line_options(int argc, char** argv)
     int client_long_index;
     int client_opt = getopt_long(argc,
                                  argv,
-                                 starch3::Starch::client_opt_string().c_str(),
-                                 starch3::Starch::client_long_options(),
+                                 this->get_client_starch_opt_string().c_str(),
+                                 this->get_client_starch_long_options(),
                                  &client_long_index);
 
     opterr = 0; /* disable error reporting by GNU getopt */
+    int compression_methods_set = 0;
 
     while (client_opt != -1) {
-        switch (client_opt) 
-            {
+        switch (client_opt) {
 	    case 'n':
-                this->set_note(optarg);
-		break;
-            case 'h':
-                this->print_usage(stdout);
-                std::exit(EXIT_SUCCESS);
-            case 'v':
-                this->print_version(stdout);
-                std::exit(EXIT_SUCCESS);
-            case '?':
-                this->print_usage(stdout);
-                std::exit(EXIT_SUCCESS);
+            this->set_note(optarg);
+            break;
+        case 'b':
+            this->set_compression_method(k_bzip2);
+            compression_methods_set++;
+            break;
+        case 'g':
+            this->set_compression_method(k_gzip);
+            compression_methods_set++;
+            break;
+        case 'h':
+            this->print_usage(stdout);
+            std::exit(EXIT_SUCCESS);
+        case 'v':
+            this->print_version(stdout);
+            std::exit(EXIT_SUCCESS);
+        case '?':
+            this->print_usage(stdout);
+            std::exit(EXIT_SUCCESS);
 	    default:
 		break;
-            }        
-	client_opt = getopt_long(argc,
+        }        
+        client_opt = getopt_long(argc,
                                  argv,
-                                 starch3::Starch::client_opt_string().c_str(),
-                                 starch3::Starch::client_long_options(),
+                                 this->get_client_starch_opt_string().c_str(),
+                                 this->get_client_starch_long_options(),
                                  &client_long_index);
     }
 
@@ -94,10 +129,78 @@ starch3::Starch::init_command_line_options(int argc, char** argv)
         }
         while (++optind < argc);
     }
+
+    if (compression_methods_set > 1) {
+        std::fprintf(stderr, "Error: Only one compression method may be set\n");
+        this->print_usage(stderr);
+        std::exit(EXIT_FAILURE);
+    }
+    else if (compression_methods_set == 0) {
+        this->set_compression_method(client_starch_default_compression_method);
+    }
     
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::init_command_line_options() - leave ---\n");
 #endif
+}
+
+std::string 
+starch3::Starch::get_client_starch_name(void) 
+{
+    static std::string _s(starch3::Starch::client_name);
+    return _s;
+}
+
+std::string 
+starch3::Starch::get_client_starch_version(void) 
+{
+    static std::string _s(starch3::Starch::client_version);
+    return _s;
+}
+
+std::string 
+starch3::Starch::get_client_starch_authors(void) 
+{
+    static std::string _s(starch3::Starch::client_authors);
+    return _s;
+}
+
+std::string 
+starch3::Starch::get_client_starch_usage(void) 
+{
+    static std::string _s("\n"                                  \
+                          "  Usage:\n"                          \
+                          "\n"                                  \
+                          "  $ starch3 [options] < input > output\n" \
+                          "\n"                                  \
+                          "  Or:\n"                             \
+                          "\n"                                  \
+                          "  $ starch3 [options] input > output\n");
+    return _s;
+}
+
+std::string 
+starch3::Starch::get_client_starch_description(void) 
+{
+    static std::string _s("  Compress sorted BED data to BEDOPS Starch archive format.\n");
+    return _s;
+}
+
+std::string
+starch3::Starch::get_client_starch_io_options(void) 
+{
+    static std::string _s("  General Options:\n\n"      \
+                          "  --note=\"foo bar...\"   Append note to output archive metadata (optional)\n");
+    return _s; 
+}
+        
+std::string
+starch3::Starch::get_client_starch_general_options(void) 
+{
+    static std::string _s("  Process Flags:\n\n"        \
+                          "  --help                  Show this usage message\n" \
+                          "  --version               Show binary version\n");
+    return _s;
 }
 
 void
@@ -115,13 +218,13 @@ starch3::Starch::print_usage(FILE* wo_stream)
                  "%s\n"                         \
                  "%s\n"                         \
                  "%s\n",
-                 starch3::Starch::general_name().c_str(),
-                 starch3::Starch::version().c_str(),
-                 starch3::Starch::authors().c_str(),
-                 starch3::Starch::general_usage().c_str(),
-                 starch3::Starch::general_description().c_str(),
-                 starch3::Starch::general_io_options().c_str(), 
-                 starch3::Starch::general_options().c_str());
+                 this->get_client_starch_name().c_str(),
+                 this->get_client_starch_version().c_str(),
+                 this->get_client_starch_authors().c_str(),
+                 this->get_client_starch_usage().c_str(),
+                 this->get_client_starch_description().c_str(),
+                 this->get_client_starch_io_options().c_str(), 
+                 this->get_client_starch_general_options().c_str());
 
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::print_usage() - leave ---\n");
@@ -139,9 +242,9 @@ starch3::Starch::print_version(FILE* wo_stream)
                  "%s\n"       \
                  "  version: %s\n"              \
                  "  author:  %s\n",
-                 starch3::Starch::general_name().c_str(),
-                 starch3::Starch::version().c_str(),
-                 starch3::Starch::authors().c_str());
+                 this->get_client_starch_name().c_str(),
+                 this->get_client_starch_version().c_str(),
+                 this->get_client_starch_authors().c_str());
 
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::print_version() - leave ---\n");
