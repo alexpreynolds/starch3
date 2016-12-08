@@ -1,4 +1,4 @@
-#include "starch3.hpp"
+#include "starch3api.hpp"
 
 const std::string starch3::Starch::client_name = "starch3";
 const std::string starch3::Starch::client_version = "0.1";
@@ -15,29 +15,36 @@ int
 main(int argc, char** argv) 
 {
 #ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::main() - enter ---\n");
+    std::fprintf(stderr, "--- starch3::Starch::main() - start ---\n");
 #endif
 
     starch3::Starch starch;
     starch3::self = &starch;
 
-    starch.init_command_line_options(argc, argv);
+    starch.initialize_command_line_options(argc, argv);
+    
     starch.test_stdin_availability();
-    starch.init_in_stream();
+    
+    starch.initialize_in_stream();
 
-    starch.init_out_stream();
+    starch.initialize_out_stream();
 
-    starch.init_shared_buffer(&starch.bed_sb);
+    starch.initialize_shared_buffer(&starch.bed_sb);
+    
     pthread_create(&starch.produce_bed_thread, NULL, starch3::Starch::produce_bed, &starch.bed_sb);
     pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.bed_sb);
+    pthread_create(&starch.chromosome_name_changed_thread, NULL, starch3::Starch::chromosome_name_changed, &starch.bed_sb);
+    
     pthread_join(starch.produce_bed_thread, NULL); 
     pthread_join(starch.consume_bed_thread, NULL); 
+    pthread_join(starch.chromosome_name_changed_thread, NULL); 
+    
     starch.delete_shared_buffer(&starch.bed_sb);
 
     starch.delete_out_stream();
 
 #ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::main() - leave ---\n");
+    std::fprintf(stderr, "--- starch3::Starch::main() - end ---\n");
 #endif
 
     return EXIT_SUCCESS;
@@ -70,10 +77,10 @@ starch3::Starch::get_client_starch_long_options(void)
 }
 
 void
-starch3::Starch::init_command_line_options(int argc, char** argv)
+starch3::Starch::initialize_command_line_options(int argc, char** argv)
 {
 #ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::init_command_line_options() - enter ---\n");
+    std::fprintf(stderr, "--- starch3::Starch::initialize_command_line_options() ---\n");
 #endif
 
     int client_long_index;
@@ -138,10 +145,6 @@ starch3::Starch::init_command_line_options(int argc, char** argv)
     else if (compression_methods_set == 0) {
         this->set_compression_method(client_starch_default_compression_method);
     }
-    
-#ifdef DEBUG
-    std::fprintf(stderr, "--- starch3::Starch::init_command_line_options() - leave ---\n");
-#endif
 }
 
 std::string 

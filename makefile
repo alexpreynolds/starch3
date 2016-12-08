@@ -1,4 +1,4 @@
-PRODUCT = starch3
+CLIENT_STARCH_PRODUCT = starch3
 FLAGS = -Wall -Wno-exit-time-destructors -Wno-global-constructors -Wno-padded -std=c++11
 CWD = $(shell pwd)
 SRC = ${CWD}/src
@@ -25,9 +25,11 @@ ifeq ($(UNAME),Darwin)
 	FLAGS += -Weverything -Wno-c++98-compat-pedantic
 endif
 
-all: prep bzip2 jansson
+all: prep bzip2 jansson starch3
+
+starch3:
 	${CXX} ${FLAGS} ${FLAGS2} ${INC} -c "${SRC}/starch3.cpp" -o "${BUILD}/starch3.o" 
-	${CXX} ${FLAGS} ${FLAGS2} ${INC} -L"${BZIP2_LIB_DIR}" -L"${JSON_LIB_DIR}" "${BUILD}/starch3.o" -o "${BUILD}/${PRODUCT}" -lbz2 -lpthread -ljansson
+	${CXX} ${FLAGS} ${FLAGS2} ${INC} -L"${BZIP2_LIB_DIR}" -L"${JSON_LIB_DIR}" "${BUILD}/starch3.o" -o "${BUILD}/${CLIENT_STARCH_PRODUCT}" -lbz2 -lpthread -ljansson
 
 prep:
 	@if [ ! -d "${BUILD}" ]; then mkdir "${BUILD}"; fi
