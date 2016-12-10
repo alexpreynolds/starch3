@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <cinttypes>
+#include <cstring>
 #include <getopt.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -104,8 +105,8 @@ namespace starch3
         void set_in_stream(FILE* ri_stream);
         std::string get_input_fn(void);
         void set_input_fn(std::string s);
-        void initialize_out_stream(void);
-        void delete_out_stream(void);
+        void initialize_out_compression_stream(void);
+        void delete_out_compression_stream(void);
         std::string get_note(void);
         void set_note(std::string s);
         Starch::compression_method_t get_compression_method(void);
@@ -482,8 +483,8 @@ namespace starch3
         this->set_in_stream(in_fp);
     }
 
-    void Starch::set_in_stream(FILE* ri_stream) {
-        _in_stream = ri_stream;
+    void Starch::set_in_stream(FILE* is) {
+        _in_stream = is;
     }
 
     std::string Starch::get_input_fn(void) {
@@ -501,7 +502,7 @@ namespace starch3
         }
     }
 
-    void Starch::initialize_out_stream(void) {
+    void Starch::initialize_out_compression_stream(void) {
         switch (this->get_compression_method()) {
         case k_bzip2:
             this->initialize_bz_stream_ptr();
@@ -517,7 +518,7 @@ namespace starch3
         }
     }
 
-    void Starch::delete_out_stream(void) {
+    void Starch::delete_out_compression_stream(void) {
         switch (this->get_compression_method()) {
         case k_bzip2:
             this->delete_bz_stream_ptr();
