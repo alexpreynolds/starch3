@@ -59,3 +59,4 @@ tramp
 *.hex
 
 *.DS_Store
+/build/
