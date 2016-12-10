@@ -61,21 +61,22 @@ namespace starch3
             int64_t base_count_nonunique;
         } transform_state_t;
 
-        // cf. http://www.cs.fsu.edu/~baker/opsys/examples/prodcons/prodcons3.c
+        // cf. http://pages.cs.wisc.edu/~remzi/OSTEP/threads-cv.pdf
         typedef struct shared_buffer {
-            pthread_mutex_t lock;                       // protects the buffer
-            pthread_cond_t raw_bed_data_available;      // to note when the buffer has raw bed data ready to process
-            pthread_cond_t raw_bed_line_buffer_empty;   // to note when the buffer is empty and ready to be filled with raw bed data
-            pthread_cond_t chromosome_name_to_be_changed;
-            pthread_cond_t chromosome_name_changed;     // to note when the chromosome name has changed
+            pthread_mutex_t lock;                       // protects the buffer and transformation state
+            pthread_cond_t new_line_is_available;       // to note when the buffer has raw BED data ready to process
+            pthread_cond_t new_line_is_empty;           // to note when the buffer is empty and ready to be filled with raw BED data
+            pthread_cond_t new_chromosome_is_available; // to note when a record is parsed that contains a new chromosome field name
             char* line;                                 // line text
             size_t line_capacity;
             int next_in;                                // next available line for input
             int next_out;                               // next available line for output
-            bool line_has_data;                         // is line occupied?
+            bool is_new_line_available;                 // is line occupied?
+            bool is_new_chromosome_available;           // is new chromosome available?
+            bool is_eof;               
             FILE* in_stream;                            // input file stream
-            bed_t* bed;                                 // raw bed field components
-            transform_state_t* tf_state;                // transformed bed state components
+            bed_t* bed;                                 // raw BED field components
+            transform_state_t* tf_state;                // transformed BED state components
         } shared_buffer_t;
 
     private:
@@ -89,10 +90,11 @@ namespace starch3
         Starch();
         ~Starch();
 
-        pthread_t produce_bed_thread;
-        pthread_t consume_bed_thread;
-        pthread_t chromosome_name_changed_thread;
-        shared_buffer_t bed_sb;
+        pthread_t produce_line_thread;
+        pthread_t consume_line_thread;
+        pthread_t consume_line_chr_thread;
+
+        shared_buffer_t buffer;
 
         void initialize_shared_buffer(starch3::Starch::shared_buffer_t* b);
         void reset_transformation_state(starch3::Starch::transform_state_t** tfs);
@@ -137,17 +139,16 @@ namespace starch3
         static const char field_delimiter = '\t';
         static const char line_delimiter = '\n';
         
-        static void* produce_bed(void* arg) {
+        static void* produce_line(void* arg) {
             size_t line_pos = 0;
             char* new_line = NULL;
             shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
             
-            pthread_mutex_lock(&sb->lock);
             for (;;) {
-                while (sb->line_has_data) {
-                    pthread_cond_wait(&sb->raw_bed_line_buffer_empty, &sb->lock);
+                pthread_mutex_lock(&sb->lock);
+                while (sb->is_new_line_available) {
+                    pthread_cond_wait(&sb->new_line_is_empty, &sb->lock);
                 }
-                pthread_mutex_unlock(&sb->lock);
                 line_pos = 0;
                 /* read a line of data into the buffer */
                 do {  
@@ -163,36 +164,26 @@ namespace starch3
                     }
                     if ((sb->line[line_pos++] = static_cast<char>( getc(sb->in_stream) )) == EOF) {
                         sb->next_in = (sb->next_in == 0) ? 1 : 0;
-                        pthread_mutex_lock(&sb->lock);
-                        sb->line_has_data = true;
+                        sb->is_new_line_available = true;
+                        sb->is_new_chromosome_available = true;
+                        sb->is_eof = true;
+                        pthread_cond_signal(&sb->new_line_is_available);
+                        pthread_cond_signal(&sb->new_chromosome_is_available);
                         pthread_mutex_unlock(&sb->lock);
-                        pthread_cond_signal(&sb->raw_bed_data_available);
+                        std::fprintf(stdout, "Debug: Calling EOF from produce_line()\n");
                         pthread_exit(NULL);
                     }
                 } while ((sb->line[line_pos-1] != line_delimiter));
                 sb->next_in = (sb->next_in == 0) ? 1 : 0;
-                pthread_mutex_lock(&sb->lock);
-                sb->line_has_data = true;
-                pthread_cond_broadcast(&sb->raw_bed_data_available);
-            }
-        }
-
-        static void* chromosome_name_changed(void* arg) {
-            shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
-            pthread_mutex_lock(&sb->lock);
-            for (;;) {
-                while (sb->line_has_data) {
-                    pthread_cond_wait(&sb->chromosome_name_to_be_changed, &sb->lock);
-                }
+                sb->is_new_line_available = true;
+                sb->is_new_chromosome_available = false;
+                sb->is_eof = false;
+                pthread_cond_signal(&sb->new_line_is_available);
                 pthread_mutex_unlock(&sb->lock);
-                fprintf(stderr, "Chromosome name changed from [%s] to [%s]\n", sb->tf_state->last_chr, sb->tf_state->current_chr);
-                pthread_mutex_lock(&sb->lock);
-                sb->line_has_data = true;
-                pthread_cond_broadcast(&sb->raw_bed_data_available);
             }
         }
         
-        static void* consume_bed(void* arg) { 
+        static void* consume_line(void* arg) { 
             size_t line_pos = 0;
             size_t elem_pos = 0;
             shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
@@ -200,12 +191,11 @@ namespace starch3
             
             sb->bed->token = k_chromosome_token;
             
-            pthread_mutex_lock(&sb->lock);
             for (;;) {
-                while (!sb->line_has_data) {
-                    pthread_cond_wait(&sb->raw_bed_data_available, &sb->lock);
+                pthread_mutex_lock(&sb->lock);
+                while (!sb->is_new_line_available) {
+                    pthread_cond_wait(&sb->new_line_is_available, &sb->lock);
                 }
-                pthread_mutex_unlock(&sb->lock);
                 line_pos = 0;
                 sb->bed->chr[elem_pos] = '\0';
                 sb->bed->start_str[elem_pos] = '\0';
@@ -219,8 +209,17 @@ namespace starch3
                         line_pos++;
                     }
                     if (sb->line[line_pos] == EOF) {
+                        if (sb->bed->chr) {
+                            free(sb->bed->chr);
+                            sb->bed->chr = NULL;
+                        }
+                        sb->is_eof = true;
+                        std::fprintf(stdout, "Debug: Calling EOF from consume_line()\n");
+                        pthread_cond_signal(&sb->new_chromosome_is_available);
+                        pthread_mutex_unlock(&sb->lock);
                         pthread_exit(NULL);
                     }
+
                     switch (sb->bed->token) {
                     case k_chromosome_token:
                         if ((elem_pos + 1) == sb->bed->chr_capacity) {
@@ -290,35 +289,70 @@ namespace starch3
                 }
                 sscanf(sb->bed->start_str, "%" SCNu64, &sb->bed->start);
                 sscanf(sb->bed->stop_str, "%" SCNu64, &sb->bed->stop);
-                fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", sb->bed->chr, sb->bed->start, sb->bed->stop, sb->bed->rem);
                 elem_pos = 0;
                 sb->bed->token = k_chromosome_token;
                 sb->next_out = (sb->next_out == 0) ? 1 : 0;
-                pthread_mutex_lock(&sb->lock);
-                sb->line_has_data = false;
-                if (sb->tf_state->current_chr == NULL) {
-                    sb->tf_state->current_chr = static_cast<char *>( malloc(std::strlen(sb->bed->chr)) );
-                    if (!sb->tf_state->current_chr) {
-                        std::fprintf(stderr, "Error: Not enough memory for allocation of transformation buffer current chromosome\n");
-                        std::exit(ENOMEM);
-                    }
-                    std::strncpy(sb->tf_state->current_chr, sb->bed->chr, std::strlen(sb->bed->chr));
-                    pthread_cond_broadcast(&sb->chromosome_name_to_be_changed);
-                    pthread_cond_broadcast(&sb->raw_bed_line_buffer_empty);
+                if ((sb->tf_state->current_chr == NULL) || (std::strcmp(sb->bed->chr, sb->tf_state->current_chr) != 0)) {
+                    sb->is_new_chromosome_available = true;
+                    sb->is_new_line_available = false;
+                    pthread_cond_signal(&sb->new_chromosome_is_available);
                 }
                 else {
-                    pthread_cond_broadcast(&sb->raw_bed_line_buffer_empty);
-                }            
+                    fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", sb->bed->chr, sb->bed->start, sb->bed->stop, sb->bed->rem);
+                    sb->is_new_chromosome_available = false;
+                    sb->is_new_line_available = false;
+                    pthread_cond_signal(&sb->new_line_is_empty);
+                }
+                pthread_mutex_unlock(&sb->lock);
+            }
+        }
+
+        static void* consume_line_chr(void* arg) {
+            shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
+            for (;;) {
+                pthread_mutex_lock(&sb->lock);
+                if (sb->is_eof) {
+                    std::fprintf(stdout, "Debug: Calling EOF from consume_line_chr()\n");
+                    pthread_exit(NULL);
+                }
+                while (!sb->is_new_chromosome_available) {
+                    pthread_cond_wait(&sb->new_chromosome_is_available, &sb->lock);
+                }
+                update_string(&sb->tf_state->last_chr, sb->tf_state->current_chr);
+                update_string(&sb->tf_state->current_chr, sb->bed->chr);
+                std::fprintf(stdout, "Debug: Chromosome state updated (was [%s] - now [%s])\n", sb->tf_state->last_chr, sb->tf_state->current_chr);
+                sb->is_new_chromosome_available = false;
+                sb->is_new_line_available = true;
+                pthread_cond_signal(&sb->new_line_is_available);
+                pthread_mutex_unlock(&sb->lock);
             }
         }
 
         static void bzip2_block_close_static_callback(void* s);
+
+        static inline void update_string(char** dest, char* src) {
+            if (*dest) {
+                free(*dest);
+                *dest = NULL;
+            }
+            if (!src) {
+                return;
+            }
+            *dest = static_cast<char *>( malloc(std::strlen(src) + 1) );
+            if (!*dest) {
+                std::fprintf(stderr, "Error: Not enough memory for allocation of transformation buffer chromosome\n");
+                std::exit(ENOMEM);
+            }
+            std::strncpy(*dest, src, std::strlen(src) + 1);
+        }
     };
 
     void Starch::initialize_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
         sb->next_in = 0;
         sb->next_out = 0;
-        sb->line_has_data = false;
+        sb->is_new_line_available = false;
+        sb->is_new_chromosome_available = false;
+        sb->is_eof = false;
         sb->line = NULL;
         sb->line = static_cast<char*>( malloc(starch3::Starch::line_initial_length) );
         if (!sb->line) {
@@ -360,10 +394,9 @@ namespace starch3
         }
         sb->bed->rem_capacity = starch3::Starch::field_initial_length;
         pthread_mutex_init(&sb->lock, NULL);
-        pthread_cond_init(&sb->raw_bed_data_available, NULL);
-        pthread_cond_init(&sb->raw_bed_line_buffer_empty, NULL);
-        pthread_cond_init(&sb->chromosome_name_to_be_changed, NULL);
-        pthread_cond_init(&sb->chromosome_name_changed, NULL);
+        pthread_cond_init(&sb->new_line_is_available, NULL);
+        pthread_cond_init(&sb->new_line_is_empty, NULL);
+        pthread_cond_init(&sb->new_chromosome_is_available, NULL);
         sb->in_stream = get_in_stream();
         sb->tf_state = NULL;
         sb->tf_state = static_cast<transform_state_t *>( malloc(sizeof(transform_state_t)) );
@@ -397,10 +430,9 @@ namespace starch3
 
     void Starch::delete_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
         pthread_mutex_destroy(&sb->lock);
-        pthread_cond_destroy(&sb->raw_bed_data_available);
-        pthread_cond_destroy(&sb->raw_bed_line_buffer_empty);
-        pthread_cond_destroy(&sb->chromosome_name_to_be_changed);
-        pthread_cond_destroy(&sb->chromosome_name_changed);
+        pthread_cond_destroy(&sb->new_line_is_available);
+        pthread_cond_destroy(&sb->new_line_is_empty);
+        pthread_cond_destroy(&sb->new_chromosome_is_available);
         fclose(sb->in_stream);
         if (sb->line) {
             free(sb->line);
@@ -476,8 +508,11 @@ namespace starch3
             this->setup_bz_stream_callbacks(this);
             break;
         case k_gzip:
-            break;
+            std::fprintf(stderr, "Error: This method is unsupported at this time\n");
+            std::exit(ENOSYS);
         case k_compression_method_undefined:
+            std::fprintf(stderr, "Error: This method is undefined\n");
+            std::exit(ENOSYS);
             break;
         }
     }
@@ -488,8 +523,12 @@ namespace starch3
             this->delete_bz_stream_ptr();
             break;
         case k_gzip:
+            std::fprintf(stderr, "Error: This method is unsupported at this time\n");
+            std::exit(ENOSYS);
             break;
         case k_compression_method_undefined:
+            std::fprintf(stderr, "Error: This method is undefined\n");
+            std::exit(ENOSYS);
             break;
         }
     }

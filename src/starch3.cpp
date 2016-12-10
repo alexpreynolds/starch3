@@ -29,17 +29,17 @@ main(int argc, char** argv)
 
     starch.initialize_out_stream();
 
-    starch.initialize_shared_buffer(&starch.bed_sb);
+    starch.initialize_shared_buffer(&starch.buffer);
     
-    pthread_create(&starch.produce_bed_thread, NULL, starch3::Starch::produce_bed, &starch.bed_sb);
-    pthread_create(&starch.consume_bed_thread, NULL, starch3::Starch::consume_bed, &starch.bed_sb);
-    pthread_create(&starch.chromosome_name_changed_thread, NULL, starch3::Starch::chromosome_name_changed, &starch.bed_sb);
+    pthread_create(&starch.produce_line_thread, NULL, starch3::Starch::produce_line, &starch.buffer);
+    pthread_create(&starch.consume_line_thread, NULL, starch3::Starch::consume_line, &starch.buffer);
+    pthread_create(&starch.consume_line_chr_thread, NULL, starch3::Starch::consume_line_chr, &starch.buffer);
     
-    pthread_join(starch.produce_bed_thread, NULL); 
-    pthread_join(starch.consume_bed_thread, NULL); 
-    pthread_join(starch.chromosome_name_changed_thread, NULL); 
+    pthread_join(starch.produce_line_thread, NULL); 
+    pthread_join(starch.consume_line_thread, NULL); 
+    pthread_join(starch.consume_line_chr_thread, NULL);
     
-    starch.delete_shared_buffer(&starch.bed_sb);
+    starch.delete_shared_buffer(&starch.buffer);
 
     starch.delete_out_stream();
 
