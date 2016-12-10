@@ -27,7 +27,7 @@ main(int argc, char** argv)
     
     starch.initialize_in_stream();
 
-    starch.initialize_out_stream();
+    starch.initialize_out_compression_stream();
 
     starch.initialize_shared_buffer(&starch.buffer);
     
@@ -41,7 +41,7 @@ main(int argc, char** argv)
     
     starch.delete_shared_buffer(&starch.buffer);
 
-    starch.delete_out_stream();
+    starch.delete_out_compression_stream();
 
 #ifdef DEBUG
     std::fprintf(stderr, "--- starch3::Starch::main() - end ---\n");
