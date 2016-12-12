@@ -481,7 +481,7 @@ namespace starch3
             if (!src) {
                 return;
             }
-            *dest = static_cast<char *>( malloc(std::strlen(src) + 1) );
+            *dest = static_cast<char*>( std::malloc(std::strlen(src) + 1) );
             if (!*dest) {
                 std::fprintf(stderr, "Error: Not enough memory for allocation of transformation buffer chromosome\n");
                 std::exit(ENOMEM);
@@ -599,11 +599,6 @@ namespace starch3
             sb->in_line = NULL;
             sb->in_line_capacity = 0;
         }
-        if (sb->tf_line) {
-            free(sb->tf_line);
-            sb->tf_line = NULL;
-            sb->tf_line_capacity = 0;
-        }
         this->delete_transformation_state(&sb->tf_state);
         if (sb->bed) {
             if (sb->bed->chr) {
@@ -628,6 +623,11 @@ namespace starch3
             }
             free(sb->bed);
             sb->bed = NULL;
+        }
+        if (sb->tf_line) {
+            free(sb->tf_line);
+            sb->tf_line = NULL;
+            sb->tf_line_capacity = 0;
         }
         if (sb->tf_buffer) {
             free(sb->tf_buffer);
