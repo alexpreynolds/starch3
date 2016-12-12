@@ -38,7 +38,7 @@ main(int argc, char** argv)
     pthread_join(starch.produce_line_thread, NULL); 
     pthread_join(starch.consume_line_thread, NULL); 
     pthread_join(starch.consume_line_chr_thread, NULL);
-    
+
     starch.delete_shared_buffer(&starch.buffer);
 
     starch.delete_out_compression_stream();
