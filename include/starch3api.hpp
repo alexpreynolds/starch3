@@ -342,7 +342,7 @@ namespace starch3
         static void process_tf_buffer(shared_buffer_t* sb) {
             if (sb->tf_buffer) {
                 std::fprintf(stderr, "[%s]\n", sb->tf_buffer);
-                initialize_transformation_state(&sb->tf_state);
+                reset_transformation_state(&sb->tf_state);
                 free(sb->tf_buffer);
                 sb->tf_buffer = NULL;
                 sb->tf_buffer = static_cast<char*>( std::calloc(tf_buffer_initial_length, sizeof(*sb->tf_buffer)) );
@@ -461,6 +461,21 @@ namespace starch3
             (*tfs)->current_stop = 0;
             (*tfs)->current_coord_diff = 0;
             (*tfs)->current_chr = NULL;
+            (*tfs)->base_count_unique = 0;
+            (*tfs)->base_count_nonunique = 0;
+#ifdef DEBUG
+            std::fprintf(stderr, "--- starch3::Starch::initialize_transformation_state() ---\n");
+#endif
+        }
+
+        static void reset_transformation_state(starch3::Starch::transform_state_t** tfs) {
+            (*tfs)->line_count = 0;
+            (*tfs)->last_start = 0;
+            (*tfs)->last_stop = 0;
+            (*tfs)->last_coord_diff = 0;
+            (*tfs)->current_start = 0;
+            (*tfs)->current_stop = 0;
+            (*tfs)->current_coord_diff = 0;
             (*tfs)->base_count_unique = 0;
             (*tfs)->base_count_nonunique = 0;
 #ifdef DEBUG
