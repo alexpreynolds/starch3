@@ -614,7 +614,11 @@ namespace starch3
             sb->in_line = NULL;
             sb->in_line_capacity = 0;
         }
-        this->delete_transformation_state(&sb->tf_state);
+        if (sb->tf_state) {
+            this->delete_transformation_state(&sb->tf_state);
+            free(sb->tf_state);
+            sb->tf_state = NULL;
+        }
         if (sb->bed) {
             if (sb->bed->chr) {
                 free(sb->bed->chr);
