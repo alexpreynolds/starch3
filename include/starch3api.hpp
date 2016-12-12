@@ -320,7 +320,6 @@ namespace starch3
             for (;;) {
                 if (sb->is_eof) {
                     std::fprintf(stdout, "Debug: Calling EOF from consume_line_chr()\n");
-                    fprintf(stderr, "[%s]\n", sb->tf_buffer);
                     pthread_exit(NULL);
                 }
                 pthread_mutex_lock(&sb->lock);
@@ -330,10 +329,29 @@ namespace starch3
                 update_str(&sb->tf_state->last_chr, sb->tf_state->current_chr);
                 update_str(&sb->tf_state->current_chr, sb->bed->chr);
                 std::fprintf(stdout, "Debug: Chromosome state updated (was [%s] - now [%s])\n", sb->tf_state->last_chr, sb->tf_state->current_chr);
+                if (sb->tf_state->last_chr) {
+                    process_tf_buffer(sb);
+                }
                 sb->is_new_chromosome_available = false;
                 sb->is_new_line_available = true;
                 pthread_cond_signal(&sb->new_line_is_available);
                 pthread_mutex_unlock(&sb->lock);
+            }
+        }
+
+        static void process_tf_buffer(shared_buffer_t* sb) {
+            if (sb->tf_buffer) {
+                std::fprintf(stderr, "[%s]\n", sb->tf_buffer);
+                initialize_transformation_state(&sb->tf_state);
+                free(sb->tf_buffer);
+                sb->tf_buffer = NULL;
+                sb->tf_buffer = static_cast<char*>( std::calloc(tf_buffer_initial_length, sizeof(*sb->tf_buffer)) );
+                if (!sb->tf_buffer) {
+                    std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t transformation buffer\n");
+                    std::exit(ENOMEM);
+                }
+                sb->tf_buffer_capacity = tf_buffer_initial_length;
+                sb->tf_buffer_size = 0;
             }
         }
 
@@ -342,7 +360,6 @@ namespace starch3
             size_t tf_line_len = strlen(sb->tf_line);
             /* resize tf_buffer, if necessary */
             if (sb->tf_buffer_capacity < (sb->tf_buffer_size + tf_line_len)) {
-                std::fprintf(stderr, "resizing...\n");
                 new_tf_buffer = NULL;
                 new_tf_buffer = static_cast<char*> ( realloc(sb->tf_buffer, sb->tf_buffer_capacity * 2) );
                 if (!new_tf_buffer) {
@@ -353,11 +370,8 @@ namespace starch3
                 sb->tf_buffer_capacity *= 2;
             }
             /* copy data to end of buffer */
-            std::fprintf(stdout, "_____\nbefore [%s]\nbuffer size [%zu]\n_____\n", sb->tf_buffer, sb->tf_buffer_size);
-            std::fprintf(stdout, "copying [%s] length [%zu]\n", sb->tf_line, tf_line_len);
             std::memcpy(sb->tf_buffer + sb->tf_buffer_size, sb->tf_line, tf_line_len);
             sb->tf_buffer_size += tf_line_len;
-            std::fprintf(stdout, "after [%s] [%zu]\n_____\n", sb->tf_buffer, sb->tf_buffer_size);
         }
 
         static void update_transformation_state(shared_buffer_t* sb) {
@@ -384,7 +398,7 @@ namespace starch3
                 }
                 sprintf(sb->tf_line, "p%" PRId64 "\n", sb->tf_state->current_coord_diff);
                 sb->tf_line[tf_line_len] = '\0';
-                fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
+                //fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
                 append_tf_line_to_buffer(sb);
             }
             /* encode data */
@@ -408,7 +422,7 @@ namespace starch3
                 else {
                     sprintf(sb->tf_line, "%" PRId64 "\n", last_start_diff);
                 }
-                fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
+                //fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
                 append_tf_line_to_buffer(sb);
             }
             else {
@@ -430,7 +444,7 @@ namespace starch3
                 else {
                     sprintf(sb->tf_line, "%" PRId64 "\n", sb->tf_state->current_start);
                 }
-                fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
+                //fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
                 append_tf_line_to_buffer(sb);
             }
             sb->tf_state->last_start = sb->tf_state->current_start;
@@ -558,7 +572,7 @@ namespace starch3
         }
         this->initialize_transformation_state(&sb->tf_state);
         sb->tf_buffer = NULL;
-        sb->tf_buffer = static_cast<char*>( malloc(sizeof(tf_buffer_initial_length)) );
+        sb->tf_buffer = static_cast<char*>( std::calloc(tf_buffer_initial_length, sizeof(*sb->tf_buffer)) );
         if (!sb->tf_buffer) {
             std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t transformation buffer\n");
             std::exit(ENOMEM);
