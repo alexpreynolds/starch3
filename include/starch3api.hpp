@@ -35,26 +35,26 @@ namespace starch3
         } bed_token_t;
 
         typedef struct bed {
-            char* chr;
-            size_t chr_capacity;
-            char* start_str;
-            size_t start_str_capacity;
+            char*   chr;
+            size_t  chr_capacity;
+            char*   start_str;
+            size_t  start_str_capacity;
             int64_t start;
-            char* stop_str;
-            size_t stop_str_capacity;
+            char*   stop_str;
+            size_t  stop_str_capacity;
             int64_t stop;
-            char* rem;
-            size_t rem_capacity;
-            int token;
+            char*   rem;
+            size_t  rem_capacity;
+            int     token;
         } bed_t;
 
         typedef struct transform_state {
             int64_t line_count;
-            char* last_chr;
+            char*   last_chr;
             int64_t last_start;
             int64_t last_stop;
             int64_t last_coord_diff;
-            char* current_chr;
+            char*   current_chr;
             int64_t current_start;
             int64_t current_stop;
             int64_t current_coord_diff;
@@ -68,16 +68,21 @@ namespace starch3
             pthread_cond_t new_line_is_available;       // to note when the buffer has raw BED data ready to process
             pthread_cond_t new_line_is_empty;           // to note when the buffer is empty and ready to be filled with raw BED data
             pthread_cond_t new_chromosome_is_available; // to note when a record is parsed that contains a new chromosome field name
-            char* line;                                 // line text
-            size_t line_capacity;
+            char* in_line;                              // input line text
+            size_t in_line_capacity;                    // input line capacity
             int next_in;                                // next available line for input
             int next_out;                               // next available line for output
             bool is_new_line_available;                 // is line occupied?
             bool is_new_chromosome_available;           // is new chromosome available?
-            bool is_eof;               
+            bool is_eof;                                // are we at the end of the input file stream?
             FILE* in_stream;                            // input file stream
             bed_t* bed;                                 // raw BED field components
             transform_state_t* tf_state;                // transformed BED state components
+            char* tf_line;                              // tf line text
+            size_t tf_line_capacity;                    // tf line text capacity
+            char* tf_buffer;
+            size_t tf_buffer_capacity;
+            size_t tf_buffer_size;
         } shared_buffer_t;
 
     private:
@@ -98,7 +103,6 @@ namespace starch3
         shared_buffer_t buffer;
 
         void initialize_shared_buffer(starch3::Starch::shared_buffer_t* b);
-        void reset_transformation_state(starch3::Starch::transform_state_t** tfs);
         void delete_shared_buffer(starch3::Starch::shared_buffer_t* b);
         FILE* get_in_stream(void);
         void initialize_in_stream(void);
@@ -135,13 +139,15 @@ namespace starch3
         std::string get_client_starch_io_options(void);
         std::string get_client_starch_general_options(void);
 
-        static const int line_initial_length = 1024;
-        static const int field_initial_length = 128;
+        static const int in_line_initial_length = 1024;
+        static const int in_field_initial_length = 128;
+        static const int tf_line_initial_length = 1024;
+        static const int tf_buffer_initial_length = 1024;
         static const char field_delimiter = '\t';
         static const char line_delimiter = '\n';
         
         static void* produce_line(void* arg) {
-            size_t line_pos = 0;
+            size_t in_line_pos = 0;
             char* new_line = NULL;
             shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
             
@@ -150,20 +156,20 @@ namespace starch3
                 while (sb->is_new_line_available) {
                     pthread_cond_wait(&sb->new_line_is_empty, &sb->lock);
                 }
-                line_pos = 0;
+                in_line_pos = 0;
                 /* read a line of data into the buffer */
                 do {  
-                    if ((line_pos + 1) == sb->line_capacity) {
+                    if ((in_line_pos + 1) == sb->in_line_capacity) {
                         new_line = NULL;
-                        new_line = static_cast<char*>( realloc(sb->line, sb->line_capacity * 2) );
+                        new_line = static_cast<char*>( realloc(sb->in_line, sb->in_line_capacity * 2) );
                         if (!new_line) {
                             std::fprintf(stderr, "Error: Not enough memory for reallocation of shared_buffer_t line character buffer\n");
                             std::exit(ENOMEM);
                         }
-                        sb->line = new_line;
-                        sb->line_capacity *= 2;
+                        sb->in_line = new_line;
+                        sb->in_line_capacity *= 2;
                     }
-                    if ((sb->line[line_pos++] = static_cast<char>( getc(sb->in_stream) )) == EOF) {
+                    if ((sb->in_line[in_line_pos++] = static_cast<char>( getc(sb->in_stream) )) == EOF) {
                         sb->next_in = (sb->next_in == 0) ? 1 : 0;
                         sb->is_new_line_available = true;
                         sb->is_new_chromosome_available = true;
@@ -174,7 +180,7 @@ namespace starch3
                         std::fprintf(stdout, "Debug: Calling EOF from produce_line()\n");
                         pthread_exit(NULL);
                     }
-                } while ((sb->line[line_pos-1] != line_delimiter));
+                } while ((sb->in_line[in_line_pos-1] != line_delimiter));
                 sb->next_in = (sb->next_in == 0) ? 1 : 0;
                 sb->is_new_line_available = true;
                 sb->is_new_chromosome_available = false;
@@ -185,8 +191,8 @@ namespace starch3
         }
         
         static void* consume_line(void* arg) { 
-            size_t line_pos = 0;
-            size_t elem_pos = 0;
+            size_t in_line_pos = 0;
+            size_t in_elem_pos = 0;
             shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
             char* new_field = NULL;
             
@@ -197,19 +203,19 @@ namespace starch3
                 while (!sb->is_new_line_available) {
                     pthread_cond_wait(&sb->new_line_is_available, &sb->lock);
                 }
-                line_pos = 0;
-                sb->bed->chr[elem_pos] = '\0';
-                sb->bed->start_str[elem_pos] = '\0';
-                sb->bed->stop_str[elem_pos] = '\0';
-                sb->bed->rem[elem_pos] = '\0';
+                in_line_pos = 0;
+                sb->bed->chr[in_elem_pos] = '\0';
+                sb->bed->start_str[in_elem_pos] = '\0';
+                sb->bed->stop_str[in_elem_pos] = '\0';
+                sb->bed->rem[in_elem_pos] = '\0';
                 /* process next line of text from the buffer */
                 do {
-                    if ((sb->line[line_pos] == field_delimiter) && (sb->bed->token != k_remainder_token)) {
-                        elem_pos = 0;
+                    if ((sb->in_line[in_line_pos] == field_delimiter) && (sb->bed->token != k_remainder_token)) {
+                        in_elem_pos = 0;
                         sb->bed->token++;
-                        line_pos++;
+                        in_line_pos++;
                     }
-                    if (sb->line[line_pos] == EOF) {
+                    if (sb->in_line[in_line_pos] == EOF) {
                         if (sb->bed->chr) {
                             free(sb->bed->chr);
                             sb->bed->chr = NULL;
@@ -223,7 +229,7 @@ namespace starch3
 
                     switch (sb->bed->token) {
                     case k_chromosome_token:
-                        if ((elem_pos + 1) == sb->bed->chr_capacity) {
+                        if ((in_elem_pos + 1) == sb->bed->chr_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->chr, sb->bed->chr_capacity * 2) );
                             if (!new_field) {
@@ -233,11 +239,11 @@ namespace starch3
                             sb->bed->chr = new_field;
                             sb->bed->chr_capacity *= 2;
                         }
-                        sb->bed->chr[elem_pos] = sb->line[line_pos++];
-                        sb->bed->chr[++elem_pos] = '\0';
+                        sb->bed->chr[in_elem_pos] = sb->in_line[in_line_pos++];
+                        sb->bed->chr[++in_elem_pos] = '\0';
                         break;
                     case k_start_token:
-                        if ((elem_pos + 1) == sb->bed->start_str_capacity) {
+                        if ((in_elem_pos + 1) == sb->bed->start_str_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->start_str, sb->bed->start_str_capacity * 2) );
                             if (!new_field) {
@@ -247,11 +253,11 @@ namespace starch3
                             sb->bed->start_str = new_field;
                             sb->bed->start_str_capacity *= 2;
                         }
-                        sb->bed->start_str[elem_pos] = sb->line[line_pos++];
-                        sb->bed->start_str[++elem_pos] = '\0';
+                        sb->bed->start_str[in_elem_pos] = sb->in_line[in_line_pos++];
+                        sb->bed->start_str[++in_elem_pos] = '\0';
                         break;
                     case k_stop_token:
-                        if ((elem_pos + 1) == sb->bed->stop_str_capacity) {
+                        if ((in_elem_pos + 1) == sb->bed->stop_str_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->stop_str, sb->bed->stop_str_capacity * 2) );
                             if (!new_field) {
@@ -261,11 +267,11 @@ namespace starch3
                             sb->bed->stop_str = new_field;
                             sb->bed->stop_str_capacity *= 2;
                         }
-                        sb->bed->stop_str[elem_pos] = sb->line[line_pos++];
-                        sb->bed->stop_str[++elem_pos] = '\0';
+                        sb->bed->stop_str[in_elem_pos] = sb->in_line[in_line_pos++];
+                        sb->bed->stop_str[++in_elem_pos] = '\0';
                         break;
                     case k_remainder_token:
-                        if ((elem_pos + 1) == sb->bed->rem_capacity) {
+                        if ((in_elem_pos + 1) == sb->bed->rem_capacity) {
                             new_field = NULL;
                             new_field = static_cast<char*>( realloc(sb->bed->rem, sb->bed->rem_capacity * 2) );
                             if (!new_field) {
@@ -275,22 +281,22 @@ namespace starch3
                             sb->bed->rem = new_field;
                             sb->bed->rem_capacity *= 2;
                         }
-                        sb->bed->rem[elem_pos] = sb->line[line_pos++];
-                        sb->bed->rem[++elem_pos] = '\0';
+                        sb->bed->rem[in_elem_pos] = sb->in_line[in_line_pos++];
+                        sb->bed->rem[++in_elem_pos] = '\0';
                         break;
                     }
-                } while (sb->line[line_pos-1] != line_delimiter);
+                } while (sb->in_line[in_line_pos-1] != line_delimiter);
                 switch (sb->bed->token) {
                 case k_stop_token:
-                    sb->bed->stop_str[--elem_pos] = '\0';
+                    sb->bed->stop_str[--in_elem_pos] = '\0';
                     break;
                 case k_remainder_token:
-                    sb->bed->rem[--elem_pos] = '\0';
+                    sb->bed->rem[--in_elem_pos] = '\0';
                     break;
                 }
-                sscanf(sb->bed->start_str, "%" SCNu64, &sb->bed->start);
-                sscanf(sb->bed->stop_str, "%" SCNu64, &sb->bed->stop);
-                elem_pos = 0;
+                sscanf(sb->bed->start_str, "%" SCNd64, &sb->bed->start);
+                sscanf(sb->bed->stop_str, "%" SCNd64, &sb->bed->stop);
+                in_elem_pos = 0;
                 sb->bed->token = k_chromosome_token;
                 sb->next_out = (sb->next_out == 0) ? 1 : 0;
                 if ((sb->tf_state->current_chr == NULL) || (std::strcmp(sb->bed->chr, sb->tf_state->current_chr) != 0)) {
@@ -299,7 +305,8 @@ namespace starch3
                     pthread_cond_signal(&sb->new_chromosome_is_available);
                 }
                 else {
-                    fprintf(stdout, "Debug: [%s] [%" PRIu64 "] [%" PRIu64 "] [%s]\n", sb->bed->chr, sb->bed->start, sb->bed->stop, sb->bed->rem);
+                    fprintf(stdout, "Debug: [%s] [%" PRId64 "] [%" PRId64 "] [%s]\n", sb->bed->chr, sb->bed->start, sb->bed->stop, sb->bed->rem);
+                    update_transformation_state(sb);
                     sb->is_new_chromosome_available = false;
                     sb->is_new_line_available = false;
                     pthread_cond_signal(&sb->new_line_is_empty);
@@ -311,17 +318,20 @@ namespace starch3
         static void* consume_line_chr(void* arg) {
             shared_buffer_t* sb = static_cast<shared_buffer_t*>( arg );
             for (;;) {
-                pthread_mutex_lock(&sb->lock);
                 if (sb->is_eof) {
                     std::fprintf(stdout, "Debug: Calling EOF from consume_line_chr()\n");
                     pthread_exit(NULL);
                 }
+                pthread_mutex_lock(&sb->lock);
                 while (!sb->is_new_chromosome_available) {
                     pthread_cond_wait(&sb->new_chromosome_is_available, &sb->lock);
                 }
-                update_string(&sb->tf_state->last_chr, sb->tf_state->current_chr);
-                update_string(&sb->tf_state->current_chr, sb->bed->chr);
+                update_str(&sb->tf_state->last_chr, sb->tf_state->current_chr);
+                update_str(&sb->tf_state->current_chr, sb->bed->chr);
                 std::fprintf(stdout, "Debug: Chromosome state updated (was [%s] - now [%s])\n", sb->tf_state->last_chr, sb->tf_state->current_chr);
+                if (sb->tf_state->last_chr) {
+                    process_tf_buffer(sb);
+                }
                 sb->is_new_chromosome_available = false;
                 sb->is_new_line_available = true;
                 pthread_cond_signal(&sb->new_line_is_available);
@@ -329,9 +339,156 @@ namespace starch3
             }
         }
 
-        static void bzip2_block_close_static_callback(void* s);
+        static void process_tf_buffer(shared_buffer_t* sb) {
+            if (sb->tf_buffer) {
+                std::fprintf(stderr, "[%s]\n", sb->tf_buffer);
+                reset_transformation_state(&sb->tf_state);
+                free(sb->tf_buffer);
+                sb->tf_buffer = NULL;
+                sb->tf_buffer = static_cast<char*>( std::calloc(tf_buffer_initial_length, sizeof(*sb->tf_buffer)) );
+                if (!sb->tf_buffer) {
+                    std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t transformation buffer\n");
+                    std::exit(ENOMEM);
+                }
+                sb->tf_buffer_capacity = tf_buffer_initial_length;
+                sb->tf_buffer_size = 0;
+            }
+        }
 
-        static inline void update_string(char** dest, char* src) {
+        static void append_tf_line_to_buffer(shared_buffer_t* sb) {
+            char* new_tf_buffer = NULL;
+            size_t tf_line_len = strlen(sb->tf_line);
+            /* resize tf_buffer, if necessary */
+            if (sb->tf_buffer_capacity < (sb->tf_buffer_size + tf_line_len)) {
+                new_tf_buffer = NULL;
+                new_tf_buffer = static_cast<char*> ( realloc(sb->tf_buffer, sb->tf_buffer_capacity * 2) );
+                if (!new_tf_buffer) {
+                    std::fprintf(stderr, "Error: Not enough memory for reallocation of transformation buffer\n");
+                    std::exit(ENOMEM);
+                }
+                sb->tf_buffer = new_tf_buffer;
+                sb->tf_buffer_capacity *= 2;
+            }
+            /* copy data to end of buffer */
+            std::memcpy(sb->tf_buffer + sb->tf_buffer_size, sb->tf_line, tf_line_len);
+            sb->tf_buffer_size += tf_line_len;
+        }
+
+        static void update_transformation_state(shared_buffer_t* sb) {
+            char* new_tf_line = NULL;
+            size_t tf_line_len = 0;
+            int64_t last_start_diff = 0;
+            int64_t rem_len = 0;
+            sb->tf_state->current_start = sb->bed->start;
+            sb->tf_state->current_stop = sb->bed->stop;
+            sb->tf_state->current_coord_diff = sb->bed->stop - sb->bed->start;
+            /* resize tf_line, if necessary */
+            if (sb->tf_state->current_coord_diff != sb->tf_state->last_coord_diff) {
+                sb->tf_state->last_coord_diff = sb->tf_state->current_coord_diff;
+                tf_line_len = static_cast<size_t>( 2 + n_digits(sb->tf_state->current_coord_diff) );
+                if (sb->tf_line_capacity < tf_line_len) {
+                    new_tf_line = NULL;
+                    new_tf_line = static_cast<char*> ( realloc(sb->tf_line, sb->tf_line_capacity * 2) );
+                    if (!new_tf_line) {
+                        std::fprintf(stderr, "Error: Not enough memory for reallocation of transformation buffer line\n");
+                        std::exit(ENOMEM);
+                    }
+                    sb->tf_line = new_tf_line;
+                    sb->tf_line_capacity *= 2;
+                }
+                sprintf(sb->tf_line, "p%" PRId64 "\n", sb->tf_state->current_coord_diff);
+                sb->tf_line[tf_line_len] = '\0';
+                //fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
+                append_tf_line_to_buffer(sb);
+            }
+            /* encode data */
+            if (sb->tf_state->last_stop != 0) {
+                last_start_diff = sb->tf_state->current_start - sb->tf_state->last_stop;
+                rem_len = (sb->bed->rem) ? static_cast<int64_t>( strlen(sb->bed->rem) ) : 0;
+                tf_line_len = static_cast<size_t>( n_digits(last_start_diff) + 2 + rem_len );
+                if (sb->tf_line_capacity < tf_line_len) {
+                    new_tf_line = NULL;
+                    new_tf_line = static_cast<char*> ( realloc(sb->tf_line, sb->tf_line_capacity * 2) );
+                    if (!new_tf_line) {
+                        std::fprintf(stderr, "Error: Not enough memory for reallocation of transformation buffer line\n");
+                        std::exit(ENOMEM);
+                    }
+                    sb->tf_line = new_tf_line;
+                    sb->tf_line_capacity *= 2;
+                }
+                if (rem_len > 0) {
+                    sprintf(sb->tf_line, "%" PRId64 "%c%s\n", last_start_diff, field_delimiter, sb->bed->rem);
+                }
+                else {
+                    sprintf(sb->tf_line, "%" PRId64 "\n", last_start_diff);
+                }
+                //fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
+                append_tf_line_to_buffer(sb);
+            }
+            else {
+                rem_len = (sb->bed->rem) ? static_cast<int64_t>( strlen(sb->bed->rem) ) : 0;
+                tf_line_len = static_cast<size_t>( n_digits(sb->tf_state->current_start) + 2 + rem_len );
+                if (sb->tf_line_capacity < tf_line_len) {
+                    new_tf_line = NULL;
+                    new_tf_line = static_cast<char*> ( realloc(sb->tf_line, sb->tf_line_capacity * 2) );
+                    if (!new_tf_line) {
+                        std::fprintf(stderr, "Error: Not enough memory for reallocation of transformation buffer line\n");
+                        std::exit(ENOMEM);
+                    }
+                    sb->tf_line = new_tf_line;
+                    sb->tf_line_capacity *= 2;
+                }
+                if (rem_len > 0) {
+                    sprintf(sb->tf_line, "%" PRId64 "%c%s\n", sb->tf_state->current_start, field_delimiter, sb->bed->rem);
+                }
+                else {
+                    sprintf(sb->tf_line, "%" PRId64 "\n", sb->tf_state->current_start);
+                }
+                //fprintf(stdout, "Encoding: [%s]\n", sb->tf_line);
+                append_tf_line_to_buffer(sb);
+            }
+            sb->tf_state->last_start = sb->tf_state->current_start;
+            sb->tf_state->last_stop = sb->tf_state->current_stop;
+        }
+
+        static void initialize_transformation_state(starch3::Starch::transform_state_t** tfs) {
+            (*tfs)->line_count = 0;
+            (*tfs)->last_start = 0;
+            (*tfs)->last_stop = 0;
+            (*tfs)->last_coord_diff = 0;
+            (*tfs)->last_chr = NULL;
+            (*tfs)->current_start = 0;
+            (*tfs)->current_stop = 0;
+            (*tfs)->current_coord_diff = 0;
+            (*tfs)->current_chr = NULL;
+            (*tfs)->base_count_unique = 0;
+            (*tfs)->base_count_nonunique = 0;
+#ifdef DEBUG
+            std::fprintf(stderr, "--- starch3::Starch::initialize_transformation_state() ---\n");
+#endif
+        }
+
+        static void reset_transformation_state(starch3::Starch::transform_state_t** tfs) {
+            (*tfs)->line_count = 0;
+            (*tfs)->last_start = 0;
+            (*tfs)->last_stop = 0;
+            (*tfs)->last_coord_diff = 0;
+            (*tfs)->current_start = 0;
+            (*tfs)->current_stop = 0;
+            (*tfs)->current_coord_diff = 0;
+            (*tfs)->base_count_unique = 0;
+            (*tfs)->base_count_nonunique = 0;
+#ifdef DEBUG
+            std::fprintf(stderr, "--- starch3::Starch::reset_transformation_state() ---\n");
+#endif
+        }
+
+        static void delete_transformation_state(starch3::Starch::transform_state_t** tfs) {
+            if ((*tfs)->last_chr)    { free((*tfs)->last_chr);    }
+            if ((*tfs)->current_chr) { free((*tfs)->current_chr); }
+        }
+
+        static inline void update_str(char** dest, char* src) {
             if (*dest) {
                 free(*dest);
                 *dest = NULL;
@@ -339,13 +496,29 @@ namespace starch3
             if (!src) {
                 return;
             }
-            *dest = static_cast<char *>( malloc(std::strlen(src) + 1) );
+            *dest = static_cast<char*>( std::malloc(std::strlen(src) + 1) );
             if (!*dest) {
                 std::fprintf(stderr, "Error: Not enough memory for allocation of transformation buffer chromosome\n");
                 std::exit(ENOMEM);
             }
             std::strncpy(*dest, src, std::strlen(src) + 1);
         }
+
+        static inline int64_t n_digits(int64_t i) {
+            if (i < 0) i = -i;
+            if (i <         10) return 1;
+            if (i <        100) return 2;
+            if (i <       1000) return 3;
+            if (i <      10000) return 4;
+            if (i <     100000) return 5;
+            if (i <    1000000) return 6;      
+            if (i <   10000000) return 7;
+            if (i <  100000000) return 8;
+            if (i < 1000000000) return 9;
+            return 10;
+        }
+
+        static void bzip2_block_close_static_callback(void* s);
     };
 
     void Starch::initialize_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
@@ -354,91 +527,97 @@ namespace starch3
         sb->is_new_line_available = false;
         sb->is_new_chromosome_available = false;
         sb->is_eof = false;
-        sb->line = NULL;
-        sb->line = static_cast<char*>( malloc(starch3::Starch::line_initial_length) );
-        if (!sb->line) {
+        sb->in_line = NULL;
+        sb->in_line = static_cast<char*>( malloc(starch3::Starch::in_line_initial_length) );
+        if (!sb->in_line) {
             std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t line character buffer\n");
             std::exit(ENOMEM);
         }
-        sb->line_capacity = starch3::Starch::line_initial_length;
+        sb->in_line_capacity = starch3::Starch::in_line_initial_length;
+        sb->tf_line = NULL;
+        sb->tf_line = static_cast<char*>( malloc(starch3::Starch::tf_line_initial_length) );
+        if (!sb->tf_line) {
+            std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t transformed line character buffer\n");
+            std::exit(ENOMEM);
+        }
+        sb->tf_line_capacity = starch3::Starch::tf_line_initial_length;
         sb->bed = static_cast<bed_t*>( malloc(sizeof(bed_t)) );
         if (!sb->bed) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line components\n");
             std::exit(ENOMEM);
         }
         sb->bed->chr = NULL;
-        sb->bed->chr = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
+        sb->bed->chr = static_cast<char*>( malloc(starch3::Starch::in_field_initial_length) );
         if (!sb->bed->chr) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line chromosome field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->chr_capacity = starch3::Starch::field_initial_length;
+        sb->bed->chr_capacity = starch3::Starch::in_field_initial_length;
         sb->bed->start_str = NULL;
-        sb->bed->start_str = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
+        sb->bed->start_str = static_cast<char*>( malloc(starch3::Starch::in_field_initial_length) );
         if (!sb->bed->start_str) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line start field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->start_str_capacity = starch3::Starch::field_initial_length;
+        sb->bed->start_str_capacity = starch3::Starch::in_field_initial_length;
         sb->bed->stop_str = NULL;
-        sb->bed->stop_str = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
+        sb->bed->stop_str = static_cast<char*>( malloc(starch3::Starch::in_field_initial_length) );
         if (!sb->bed->stop_str) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line stop field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->stop_str_capacity = starch3::Starch::field_initial_length;
+        sb->bed->stop_str_capacity = starch3::Starch::in_field_initial_length;
         sb->bed->rem = NULL;
-        sb->bed->rem = static_cast<char*>( malloc(starch3::Starch::field_initial_length) );
+        sb->bed->rem = static_cast<char*>( malloc(starch3::Starch::in_field_initial_length) );
         if (!sb->bed->rem) {
             std::fprintf(stderr, "Error: Could not allocate space for buffer BED line remainder field component\n");
             std::exit(ENOMEM);
         }
-        sb->bed->rem_capacity = starch3::Starch::field_initial_length;
+        sb->bed->rem_capacity = starch3::Starch::in_field_initial_length;
         pthread_mutex_init(&sb->lock, NULL);
         pthread_cond_init(&sb->new_line_is_available, NULL);
         pthread_cond_init(&sb->new_line_is_empty, NULL);
         pthread_cond_init(&sb->new_chromosome_is_available, NULL);
         sb->in_stream = get_in_stream();
         sb->tf_state = NULL;
-        sb->tf_state = static_cast<transform_state_t *>( malloc(sizeof(transform_state_t)) );
+        sb->tf_state = static_cast<transform_state_t*>( malloc(sizeof(transform_state_t)) );
         if (!sb->tf_state) {
             std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t transformation state\n");
             std::exit(ENOMEM);
         }
-        this->reset_transformation_state(&sb->tf_state);
+        this->initialize_transformation_state(&sb->tf_state);
+        sb->tf_buffer = NULL;
+        sb->tf_buffer = static_cast<char*>( std::calloc(tf_buffer_initial_length, sizeof(*sb->tf_buffer)) );
+        if (!sb->tf_buffer) {
+            std::fprintf(stderr, "Error: Not enough memory for shared_buffer_t transformation buffer\n");
+            std::exit(ENOMEM);
+        }
+        sb->tf_buffer_capacity = tf_buffer_initial_length;
+        sb->tf_buffer_size = 0;
 
 #ifdef DEBUG
         std::fprintf(stderr, "--- starch3::Starch::initialize_shared_buffer() ---\n");
 #endif
     }
 
-    void Starch::reset_transformation_state(starch3::Starch::transform_state_t** tfs) {
-        (*tfs)->line_count = 0;
-        (*tfs)->last_chr = NULL;
-        (*tfs)->last_start = 0;
-        (*tfs)->last_stop = 0;
-        (*tfs)->last_coord_diff = 0;
-        (*tfs)->current_chr = NULL;
-        (*tfs)->current_start = 0;
-        (*tfs)->current_stop = 0;
-        (*tfs)->current_coord_diff = 0;
-        (*tfs)->base_count_unique = 0;
-        (*tfs)->base_count_nonunique = 0;
-#ifdef DEBUG
-        std::fprintf(stderr, "--- starch3::Starch::reset_transformation_state() ---\n");
-#endif
-    }
-
     void Starch::delete_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
+#ifdef DEBUG
+        std::fprintf(stderr, "--- starch3::Starch::delete_shared_buffer() - START ---\n");
+#endif
         pthread_mutex_destroy(&sb->lock);
         pthread_cond_destroy(&sb->new_line_is_available);
         pthread_cond_destroy(&sb->new_line_is_empty);
         pthread_cond_destroy(&sb->new_chromosome_is_available);
         fclose(sb->in_stream);
-        if (sb->line) {
-            free(sb->line);
-            sb->line = NULL;
-            sb->line_capacity = 0;
+        if (sb->in_line) {
+            free(sb->in_line);
+            sb->in_line = NULL;
+            sb->in_line_capacity = 0;
+        }
+        if (sb->tf_state) {
+            this->delete_transformation_state(&sb->tf_state);
+            free(sb->tf_state);
+            sb->tf_state = NULL;
         }
         if (sb->bed) {
             if (sb->bed->chr) {
@@ -464,8 +643,19 @@ namespace starch3
             free(sb->bed);
             sb->bed = NULL;
         }
+        if (sb->tf_line) {
+            free(sb->tf_line);
+            sb->tf_line = NULL;
+            sb->tf_line_capacity = 0;
+        }
+        if (sb->tf_buffer) {
+            free(sb->tf_buffer);
+            sb->tf_buffer = NULL;
+            sb->tf_buffer_capacity = 0;
+            sb->tf_buffer_size = 0;
+        }
 #ifdef DEBUG
-        std::fprintf(stderr, "--- starch3::Starch::delete_shared_buffer() ---\n");
+        std::fprintf(stderr, "--- starch3::Starch::delete_shared_buffer() - END ---\n");
 #endif
     }
 
