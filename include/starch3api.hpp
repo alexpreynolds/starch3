@@ -504,18 +504,28 @@ namespace starch3
             std::strncpy(*dest, src, std::strlen(src) + 1);
         }
 
-        static inline int64_t n_digits(int64_t i) {
+        static inline short n_digits(int64_t i) {
+            // IN64_MAX = 9223372036854775808LL;
             if (i < 0) i = -i;
-            if (i <         10) return 1;
-            if (i <        100) return 2;
-            if (i <       1000) return 3;
-            if (i <      10000) return 4;
-            if (i <     100000) return 5;
-            if (i <    1000000) return 6;      
-            if (i <   10000000) return 7;
-            if (i <  100000000) return 8;
-            if (i < 1000000000) return 9;
-            return 10;
+            if (i <                  10) return 1;
+            if (i <                 100) return 2;
+            if (i <                1000) return 3;
+            if (i <               10000) return 4;
+            if (i <              100000) return 5;
+            if (i <             1000000) return 6;      
+            if (i <            10000000) return 7;
+            if (i <           100000000) return 8;
+            if (i <          1000000000) return 9;
+            if (i <         10000000000) return 10;
+            if (i <        100000000000) return 11;
+            if (i <       1000000000000) return 12;
+            if (i <      10000000000000) return 13;
+            if (i <     100000000000000) return 14;
+            if (i <    1000000000000000) return 15;
+            if (i <   10000000000000000) return 16;
+            if (i <  100000000000000000) return 17;
+            if (i < 1000000000000000000) return 18;
+            return 19;
         }
 
         static void bzip2_block_close_static_callback(void* s);
@@ -601,9 +611,6 @@ namespace starch3
     }
 
     void Starch::delete_shared_buffer(starch3::Starch::shared_buffer_t* sb) {
-#ifdef DEBUG
-        std::fprintf(stderr, "--- starch3::Starch::delete_shared_buffer() - START ---\n");
-#endif
         pthread_mutex_destroy(&sb->lock);
         pthread_cond_destroy(&sb->new_line_is_available);
         pthread_cond_destroy(&sb->new_line_is_empty);
@@ -655,7 +662,7 @@ namespace starch3
             sb->tf_buffer_size = 0;
         }
 #ifdef DEBUG
-        std::fprintf(stderr, "--- starch3::Starch::delete_shared_buffer() - END ---\n");
+        std::fprintf(stderr, "--- starch3::Starch::delete_shared_buffer() ---\n");
 #endif
     }
 
