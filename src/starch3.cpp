@@ -31,15 +31,30 @@ main(int argc, char** argv)
 
     starch.initialize_shared_buffer(&starch.buffer);
     
-    pthread_create(&starch.produce_line_thread, NULL, starch3::Starch::produce_line, &starch.buffer);
-    pthread_create(&starch.consume_line_thread, NULL, starch3::Starch::consume_line, &starch.buffer);
-    pthread_create(&starch.consume_line_chr_thread, NULL, starch3::Starch::consume_line_chr, &starch.buffer);
+    pthread_create(&starch.produce_line_thread, 
+                   NULL, 
+                   starch3::Starch::produce_line, 
+                   &starch.buffer);
+    
+    pthread_create(&starch.consume_line_thread, 
+                   NULL, 
+                   starch3::Starch::consume_line, 
+                   &starch.buffer);
+    
+    pthread_create(&starch.update_chr_thread, 
+                   NULL, 
+                   starch3::Starch::update_chr, 
+                   &starch.buffer);
+
+    pthread_create(&starch.consume_tf_buffer_thread, 
+                   NULL, 
+                   starch3::Starch::consume_tf_buffer, 
+                   &starch.buffer);
     
     pthread_join(starch.produce_line_thread, NULL); 
     pthread_join(starch.consume_line_thread, NULL); 
-    pthread_join(starch.consume_line_chr_thread, NULL);
-
-    //std::fprintf(stderr, "[%s]\n", starch.buffer.tf_buffer);
+    pthread_join(starch.update_chr_thread, NULL);
+    pthread_join(starch.consume_tf_buffer_thread, NULL);
 
     starch.delete_shared_buffer(&starch.buffer);
 
