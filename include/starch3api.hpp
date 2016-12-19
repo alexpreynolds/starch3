@@ -156,7 +156,7 @@ namespace starch3
             
             for (;;) {
                 pthread_mutex_lock(&sb->lock);
-                while (sb->is_new_line_available && !sb->is_new_tf_buffer_available) {
+                while (sb->is_new_line_available) { // && !sb->is_new_tf_buffer_available) {
                     pthread_cond_wait(&sb->new_line_is_empty, &sb->lock);
                 }
                 in_line_pos = 0;
@@ -186,7 +186,7 @@ namespace starch3
                 sb->next_in = (sb->next_in == 0) ? 1 : 0;
                 sb->is_new_line_available = true;
                 sb->is_new_chromosome_available = false;
-                sb->is_eof = false;
+                //sb->is_eof = false;
                 pthread_cond_signal(&sb->new_line_is_available);
                 pthread_mutex_unlock(&sb->lock);
             }
@@ -342,6 +342,7 @@ namespace starch3
             for (;;) {
                 if (sb->is_eof) {
                     std::fprintf(stdout, "Debug: Calling EOF from update_chr()\n");
+                    pthread_mutex_unlock(&sb->lock);
                     pthread_exit(NULL);
                 }
                 pthread_mutex_lock(&sb->lock);
@@ -352,6 +353,7 @@ namespace starch3
                 update_str(&sb->tf_state->last_chr, sb->tf_state->current_chr);
                 update_str(&sb->tf_state->current_chr, sb->bed->chr);
                 std::fprintf(stdout, "Debug: Chromosome state updated (was [%s] - now [%s])\n", sb->tf_state->last_chr, sb->tf_state->current_chr);
+                sb->is_new_tf_buffer_available = false;
                 sb->is_new_chromosome_available = false;
                 sb->is_new_line_available = true;
                 pthread_cond_signal(&sb->new_line_is_available);
@@ -364,8 +366,9 @@ namespace starch3
             for (;;) {
                 if (sb->is_eof) {
                     std::fprintf(stdout, "Debug: Calling EOF from consume_tf_buffer()\n");
+                    pthread_mutex_unlock(&sb->lock);
                     pthread_exit(NULL);
-                }
+                }                
                 pthread_mutex_lock(&sb->lock);
                 while (!sb->is_new_tf_buffer_available) {
                     pthread_cond_wait(&sb->new_tf_buffer_is_available, &sb->lock);
