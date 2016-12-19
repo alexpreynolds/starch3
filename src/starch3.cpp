@@ -27,6 +27,8 @@ main(int argc, char** argv)
     
     starch.initialize_in_stream();
 
+    starch.initialize_out_stream();
+
     starch.initialize_out_compression_stream();
 
     starch.initialize_shared_buffer(&starch.buffer);
